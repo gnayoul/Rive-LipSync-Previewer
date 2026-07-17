@@ -324,20 +324,15 @@
       color: var(--danger);
     }
 
-    .api-panel summary,
-    details summary {
-      cursor: pointer;
-      font-size: 13px;
-      color: var(--accent-strong);
-      font-weight: 600;
-      margin-bottom: 10px;
-    }
-
     .export-row {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 8px;
       margin-top: 10px;
+    }
+
+    .export-row.single {
+      grid-template-columns: 1fr;
     }
 
     .server-badge {
@@ -367,17 +362,6 @@
 
     .server-badge.error::before {
       background: var(--danger);
-    }
-
-    input[type="password"] {
-      width: 100%;
-      min-height: 40px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: white;
-      color: var(--ink);
-      padding: 8px 10px;
-      font: inherit;
     }
 
     input[type="file"] {
@@ -428,19 +412,6 @@
       color: var(--accent-strong);
       font-weight: 700;
       font-variant-numeric: tabular-nums;
-    }
-
-    .log {
-      max-height: 160px;
-      overflow: auto;
-      background: #28231f;
-      color: #f3eadf;
-      border-radius: 8px;
-      padding: 10px;
-      font-family: "Cascadia Mono", Consolas, monospace;
-      font-size: 12px;
-      line-height: 1.5;
-      white-space: pre-wrap;
     }
 
     .mapping {
@@ -510,7 +481,7 @@
     <header>
       <div>
         <h1>Rive 嘴型同步预览器</h1>
-<p class="subtitle">上传 Rive + 音频 + JSON，或用 Kokoro/Edge 文本生成语音；嘴型由浏览器内 Rhubarb 分析。</p>
+        <p class="subtitle">上传 Rive 与音频，或输入文本生成语音；嘴型自动分析并可下载。</p>
       </div>
       <div id="status" class="status">等待选择文件</div>
     </header>
@@ -521,8 +492,8 @@
           <canvas id="riveCanvas"></canvas>
           <div id="emptyState" class="empty">
             <div>
-              <strong>选择 Rive 并准备好音频与嘴型数据后，点击载入 Rive</strong>
-              <span>可上传文件，也可在右侧用文本自动生成。建议 Rive 里有 Number 输入，默认名称为 mouth。</span>
+              <strong>选择 Rive 并准备好音频与嘴型后，点击载入 Rive</strong>
+              <span>可上传音频（自动生成嘴型），也可在右侧用文本生成语音。建议 Rive 里有 Number 输入，默认名称为 mouth。</span>
             </div>
           </div>
         </div>
@@ -562,11 +533,10 @@
               <label for="audioFile">音频文件 .wav / .ogg / .mp3</label>
               <input id="audioFile" type="file" accept="audio/*,.wav,.ogg,.mp3" />
             </div>
-            <div class="field">
-              <label for="jsonFile">Rhubarb JSON 文件 mouth.json</label>
-              <input id="jsonFile" type="file" accept=".json,application/json" />
+            <div class="export-row single">
+              <button id="downloadJsonBtn" type="button" disabled>下载 mouth.json</button>
             </div>
-            <p class="hint">如果音频和 JSON 都来自同一段素材，播放时会自动按 JSON 的 start/end 时间切换嘴型。</p>
+            <p class="hint">上传音频后会自动生成嘴型数据，可下载 mouth.json。</p>
           </div>
 
           <div id="generatePanel" class="mode-panel">
@@ -576,61 +546,22 @@
             </div>
             <div class="grid-2">
               <div class="field">
-                <label for="ttsEngine">语音引擎</label>
-                <select id="ttsEngine">
-                  <option value="edge" selected>Edge 神经语音（免费，推荐公网）</option>
-                  <option value="kokoro">Kokoro（本机免费，需 start-kokoro.bat）</option>
-                  <option value="azure">Azure 神经语音（API Key）</option>
-                  <option value="elevenlabs">ElevenLabs（API Key）</option>
-                </select>
-              </div>
-              <div class="field">
                 <label for="ttsVoice">声音</label>
                 <select id="ttsVoice"></select>
               </div>
-            </div>
-            <div class="field">
-              <label for="ttsRate">语速</label>
-              <input id="ttsRate" type="range" min="0.6" max="1.4" step="0.05" value="1" />
-            </div>
-            <details class="api-panel">
-              <summary>云语音 API 设置</summary>
               <div class="field">
-                <label for="azureKey">Azure Speech Key</label>
-                <input id="azureKey" type="password" placeholder="仅保存在本机浏览器" autocomplete="off" />
+                <label for="ttsRate">语速</label>
+                <input id="ttsRate" type="range" min="0.6" max="1.4" step="0.05" value="1" />
               </div>
-              <div class="grid-2">
-                <div class="field">
-                  <label for="azureRegion">Azure 区域</label>
-                  <input id="azureRegion" type="text" value="eastasia" placeholder="例如 eastasia" />
-                </div>
-                <div class="field">
-                  <label for="elevenlabsKey">ElevenLabs API Key</label>
-                  <input id="elevenlabsKey" type="password" placeholder="仅保存在本机浏览器" autocomplete="off" />
-                </div>
-              </div>
-              <button id="loadElevenlabsVoicesBtn" type="button" style="width:100%">加载 ElevenLabs 声音列表</button>
-            </details>
-            <button id="generateBtn" class="primary" type="button" style="width:100%">生成语音与嘴型 JSON</button>
-            <div id="generateStatus" class="generate-status">公网推荐 Edge：任意浏览器可用。本机想用 Kokoro 时再开 start-kokoro.bat。</div>
-            <div id="rhubarbBadge" class="server-badge">正在加载 Rhubarb 引擎...</div>
-            <div id="kokoroBadge" class="server-badge">正在检测 Kokoro...</div>
+            </div>
+            <button id="generateBtn" class="primary" type="button" style="width:100%">生成语音与嘴型</button>
+            <div id="generateStatus" class="generate-status">输入台词后点击生成。</div>
+            <div id="rhubarbBadge" class="server-badge">正在准备嘴型分析...</div>
             <div class="export-row">
               <button id="downloadAudioBtn" type="button" disabled>下载音频</button>
-              <button id="downloadJsonBtn" type="button" disabled>下载 mouth.json</button>
+              <button id="downloadJsonBtnGenerate" type="button" disabled>下载 mouth.json</button>
             </div>
-          <p class="hint">公网部署默认用 Edge（服务器代为请求，用户不必使用 Edge 浏览器）。Kokoro 仅本机可用。</p>
           </div>
-        </section>
-
-        <section class="panel">
-          <h2>语音代理（可选）</h2>
-          <div class="field">
-            <label for="serverUrl">服务地址</label>
-            <input id="serverUrl" type="text" value="http://localhost:3921" />
-          </div>
-          <div id="serverBadge" class="server-badge">正在检测语音代理...</div>
-          <p class="hint">运行 <code>start.bat</code> 启动网页代理；运行 <code>start-kokoro.bat</code> 启动 Kokoro 语音。两者都要开。</p>
         </section>
 
         <section class="panel">
@@ -697,7 +628,7 @@
             <span id="valueNow" class="pill">0</span>
           </div>
           <div class="readout">
-            <span>JSON 片段数量</span>
+            <span>嘴型片段数量</span>
             <span id="cueCount" class="pill">0</span>
           </div>
           <div class="readout">
@@ -711,40 +642,16 @@
           <div class="mapping" id="mapping"></div>
           <p class="hint">Rive 里的 mouth 输入应为 Number。让不同数值显示对应嘴型：X=0，A=1，B=2，直到 H=8。</p>
         </section>
-
-        <section class="panel">
-          <h2>消息</h2>
-          <div id="log" class="log">准备就绪。</div>
-        </section>
       </aside>
     </main>
   </div>
 
   <script>
-    const RIVE_VERSION = "2.38.5";
-    const RIVE_PACKAGE = "@rive-app/webgl2";
-    const RIVE_JS_URL = `https://cdn.jsdelivr.net/npm/${RIVE_PACKAGE}@${RIVE_VERSION}/rive.js`;
-    const RIVE_WASM_URL = `https://cdn.jsdelivr.net/npm/${RIVE_PACKAGE}@${RIVE_VERSION}/rive.wasm`;
-    const LIP_SYNC_ENGINE_VERSION = "1.0.3";
-    const LIP_SYNC_ENGINE_URL = `https://cdn.jsdelivr.net/npm/lip-sync-engine@${LIP_SYNC_ENGINE_VERSION}/+esm`;
-    const LIP_SYNC_WASM_BASE = `https://cdn.jsdelivr.net/npm/lip-sync-engine@${LIP_SYNC_ENGINE_VERSION}/dist/wasm`;
-    const KOKORO_VOICES = [
-      { id: "zf_xiaoxiao", label: "晓晓（女声，中文）", lang: "z" },
-      { id: "zf_xiaoyi", label: "晓伊（女声，中文）", lang: "z" },
-      { id: "zf_xiaobei", label: "晓蓓（女声，中文）", lang: "z" },
-      { id: "zf_xiaoni", label: "晓妮（女声，中文）", lang: "z" },
-      { id: "zm_yunxi", label: "云希（男声，中文）", lang: "z" },
-      { id: "zm_yunyang", label: "云扬（男声，中文）", lang: "z" },
-      { id: "zm_yunjian", label: "云健（男声，中文）", lang: "z" },
-      { id: "zm_yunxia", label: "云夏（男声，中文）", lang: "z" },
-      { id: "af_heart", label: "Heart（女声，美式英文）", lang: "a" },
-      { id: "af_bella", label: "Bella（女声，美式英文）", lang: "a" },
-      { id: "af_sarah", label: "Sarah（女声，美式英文）", lang: "a" },
-      { id: "am_adam", label: "Adam（男声，美式英文）", lang: "a" },
-      { id: "am_michael", label: "Michael（男声，美式英文）", lang: "a" },
-      { id: "bf_emma", label: "Emma（女声，英式英文）", lang: "b" },
-      { id: "bm_george", label: "George（男声，英式英文）", lang: "b" },
-    ];
+    const RIVE_JS_URL = "/vendor/rive/rive.js";
+    const RIVE_WASM_URL = "/vendor/rive/rive.wasm";
+    // 同源托管，避免 CDN（jsDelivr）在部分网络下加载失败
+    const LIP_SYNC_ENGINE_URL = "/vendor/lip-sync-engine/index.mjs";
+    const LIP_SYNC_WASM_BASE = "/vendor/lip-sync-engine/wasm";
     const EDGE_VOICES = [
       { id: "zh-CN-XiaoxiaoNeural", label: "晓晓（女声，中文）" },
       { id: "zh-CN-YunxiNeural", label: "云希（男声，中文）" },
@@ -755,20 +662,6 @@
       { id: "en-US-GuyNeural", label: "Guy（男声，英文）" },
       { id: "ja-JP-NanamiNeural", label: "Nanami（女声，日文）" },
     ];
-    const AZURE_VOICES = EDGE_VOICES;
-    const ELEVENLABS_FALLBACK_VOICES = [
-      { id: "21m00Tcm4TlvDq8ikWAM", label: "Rachel（英文，通用）" },
-      { id: "EXAVITQu4vr4xnSDxMaL", label: "Sarah（英文，柔和）" },
-      { id: "pNInz6obpgDQGcFmaJgB", label: "Adam（英文，男声）" },
-    ];
-    const STORAGE_KEYS = {
-      azureKey: "lipsync.azureKey",
-      azureRegion: "lipsync.azureRegion",
-      elevenlabsKey: "lipsync.elevenlabsKey",
-      serverUrl: "lipsync.serverUrl",
-      ttsEngine: "lipsync.ttsEngine",
-      elevenlabsVoices: "lipsync.elevenlabsVoices",
-    };
 
     const shapeToValue = {
       X: 0,
@@ -786,7 +679,6 @@
       status: document.getElementById("status"),
       riveFile: document.getElementById("riveFile"),
       audioFile: document.getElementById("audioFile"),
-      jsonFile: document.getElementById("jsonFile"),
       dataMode: document.getElementById("dataMode"),
       artboardName: document.getElementById("artboardName"),
       stateMachine: document.getElementById("stateMachine"),
@@ -810,27 +702,19 @@
       cueCount: document.getElementById("cueCount"),
       machineNames: document.getElementById("machineNames"),
       mapping: document.getElementById("mapping"),
-      log: document.getElementById("log"),
       modeUpload: document.getElementById("modeUpload"),
       modeGenerate: document.getElementById("modeGenerate"),
       uploadPanel: document.getElementById("uploadPanel"),
       generatePanel: document.getElementById("generatePanel"),
       speechText: document.getElementById("speechText"),
-      ttsEngine: document.getElementById("ttsEngine"),
       ttsVoice: document.getElementById("ttsVoice"),
       ttsRate: document.getElementById("ttsRate"),
       generateBtn: document.getElementById("generateBtn"),
       generateStatus: document.getElementById("generateStatus"),
       rhubarbBadge: document.getElementById("rhubarbBadge"),
-      kokoroBadge: document.getElementById("kokoroBadge"),
-      azureKey: document.getElementById("azureKey"),
-      azureRegion: document.getElementById("azureRegion"),
-      elevenlabsKey: document.getElementById("elevenlabsKey"),
-      loadElevenlabsVoicesBtn: document.getElementById("loadElevenlabsVoicesBtn"),
       downloadAudioBtn: document.getElementById("downloadAudioBtn"),
       downloadJsonBtn: document.getElementById("downloadJsonBtn"),
-      serverUrl: document.getElementById("serverUrl"),
-      serverBadge: document.getElementById("serverBadge"),
+      downloadJsonBtnGenerate: document.getElementById("downloadJsonBtnGenerate"),
     };
 
     let inputMode = "upload";
@@ -841,6 +725,7 @@
     let lipSyncModulePromise;
     let lipSyncEngine;
     let rhubarbReady = false;
+    let uploadAnalyzeToken = 0;
 
     let riveRuntimePromise;
     let riveInstance;
@@ -852,7 +737,6 @@
     let audioObjectUrl;
 
     renderMapping();
-    restoreSettings();
     populateVoiceOptions();
     wireEvents();
     updateLoadButtonState();
@@ -862,25 +746,12 @@
     function wireEvents() {
       els.modeUpload.addEventListener("click", () => setInputMode("upload"));
       els.modeGenerate.addEventListener("click", () => setInputMode("generate"));
-      els.ttsEngine.addEventListener("change", () => {
-        saveSettings();
-        populateVoiceOptions();
-      });
       els.generateBtn.addEventListener("click", generateSpeechAssets);
-      els.loadElevenlabsVoicesBtn.addEventListener("click", loadElevenLabsVoices);
       els.downloadAudioBtn.addEventListener("click", downloadGeneratedAudio);
       els.downloadJsonBtn.addEventListener("click", downloadGeneratedJson);
-      els.serverUrl.addEventListener("change", () => {
-        saveSettings();
-        refreshServerHealth();
-      });
-      [els.azureKey, els.azureRegion, els.elevenlabsKey].forEach((input) => {
-        input.addEventListener("change", saveSettings);
-      });
+      els.downloadJsonBtnGenerate.addEventListener("click", downloadGeneratedJson);
 
-      [els.riveFile, els.audioFile, els.jsonFile].forEach((input) => {
-        input.addEventListener("change", handleFileChange);
-      });
+      els.audioFile.addEventListener("change", handleAudioUpload);
       els.riveFile.addEventListener("change", updateLoadButtonState);
 
       els.loadBtn.addEventListener("click", loadPreview);
@@ -923,28 +794,55 @@
       }
     }
 
-    async function handleFileChange() {
+    async function handleAudioUpload() {
       if (inputMode !== "upload") return;
+
+      const file = els.audioFile.files[0];
       updateLoadButtonState();
 
-      if (els.audioFile.files[0]) {
-        if (audioObjectUrl) URL.revokeObjectURL(audioObjectUrl);
-        audioObjectUrl = URL.createObjectURL(els.audioFile.files[0]);
-        els.audio.src = audioObjectUrl;
+      if (!file) {
+        cues = [];
+        generatedJsonData = null;
+        els.cueCount.textContent = "0";
+        updateExportButtons();
+        updateLoadButtonState();
+        return;
       }
 
-      if (els.jsonFile.files[0]) {
-        try {
-          cues = await readRhubarbJson(els.jsonFile.files[0]);
-          els.cueCount.textContent = String(cues.length);
-          log(`已读取 JSON：${cues.length} 个 mouth cue。`);
-          setStatus("JSON 已读取", "ok");
-        } catch (error) {
-          cues = [];
-          els.cueCount.textContent = "0";
-          log(`JSON 读取失败：${error.message}`);
-          setStatus("JSON 读取失败", "error");
-        }
+      if (audioObjectUrl) URL.revokeObjectURL(audioObjectUrl);
+      audioObjectUrl = URL.createObjectURL(file);
+      els.audio.src = audioObjectUrl;
+
+      const token = ++uploadAnalyzeToken;
+      cues = [];
+      generatedJsonData = null;
+      els.cueCount.textContent = "0";
+      updateExportButtons();
+      updateLoadButtonState();
+      setStatus("正在分析嘴型...", "warn");
+
+      try {
+        await ensureRhubarbEngine();
+        if (token !== uploadAnalyzeToken) return;
+
+        const audioBlob = file;
+        const rhubarbData = await analyzeWithRhubarbWasm(audioBlob, "");
+        if (token !== uploadAnalyzeToken) return;
+
+        cues = normalizeMouthCues(rhubarbData.mouthCues || []);
+        generatedJsonData = rhubarbData;
+        els.cueCount.textContent = String(cues.length);
+        updateExportButtons();
+        updateLoadButtonState();
+        setStatus("嘴型已就绪", "ok");
+      } catch (error) {
+        if (token !== uploadAnalyzeToken) return;
+        cues = [];
+        generatedJsonData = null;
+        els.cueCount.textContent = "0";
+        updateExportButtons();
+        updateLoadButtonState();
+        setStatus(`嘴型分析失败：${error.message}`, "error");
       }
     }
 
@@ -963,7 +861,7 @@
       const hasRive = Boolean(els.riveFile.files[0]);
       const ready =
         inputMode === "upload"
-          ? hasRive && Boolean(els.audioFile.files[0]) && Boolean(els.jsonFile.files[0])
+          ? hasRive && Boolean(els.audioFile.files[0]) && cues.length > 0
           : hasRive && generatedReady;
       els.loadBtn.disabled = !ready;
     }
@@ -974,52 +872,16 @@
     }
 
     function populateVoiceOptions() {
-      const engine = els.ttsEngine.value;
       const previous = els.ttsVoice.value;
       els.ttsVoice.innerHTML = "";
-
-      if (engine === "kokoro") {
-        KOKORO_VOICES.forEach((voice) => {
-          const option = document.createElement("option");
-          option.value = voice.id;
-          option.textContent = voice.label;
-          option.dataset.lang = voice.lang;
-          els.ttsVoice.appendChild(option);
-        });
-        if ([...els.ttsVoice.options].some((option) => option.value === previous)) {
-          els.ttsVoice.value = previous;
-        } else {
-          els.ttsVoice.value = "zf_xiaoxiao";
-        }
-        return;
-      }
-
-      if (engine === "edge" || engine === "azure") {
-        (engine === "azure" ? AZURE_VOICES : EDGE_VOICES).forEach((voice) => {
-          const option = document.createElement("option");
-          option.value = voice.id;
-          option.textContent = voice.label;
-          els.ttsVoice.appendChild(option);
-        });
-        if ([...els.ttsVoice.options].some((option) => option.value === previous)) {
-          els.ttsVoice.value = previous;
-        }
-        return;
-      }
-
-      if (engine === "elevenlabs") {
-        const storedVoices = readStoredElevenLabsVoices();
-        const voices = storedVoices.length ? storedVoices : ELEVENLABS_FALLBACK_VOICES;
-        voices.forEach((voice) => {
-          const option = document.createElement("option");
-          option.value = voice.id;
-          option.textContent = voice.label;
-          els.ttsVoice.appendChild(option);
-        });
-        if ([...els.ttsVoice.options].some((option) => option.value === previous)) {
-          els.ttsVoice.value = previous;
-        }
-        return;
+      EDGE_VOICES.forEach((voice) => {
+        const option = document.createElement("option");
+        option.value = voice.id;
+        option.textContent = voice.label;
+        els.ttsVoice.appendChild(option);
+      });
+      if ([...els.ttsVoice.options].some((option) => option.value === previous)) {
+        els.ttsVoice.value = previous;
       }
     }
 
@@ -1038,26 +900,13 @@
 
         const rate = Number(els.ttsRate.value) || 1;
         const voiceId = els.ttsVoice.value;
-        const engine = els.ttsEngine.value;
-        let audioBlob = null;
-
-        if (engine === "kokoro") {
-          audioBlob = await synthesizeKokoroTTS(text, voiceId, rate);
-        } else if (engine === "edge") {
-          audioBlob = await synthesizeEdgeTTS(text, voiceId, rate);
-        } else if (engine === "azure") {
-          audioBlob = await synthesizeAzureTTS(text, voiceId, rate);
-        } else if (engine === "elevenlabs") {
-          audioBlob = await synthesizeElevenLabsTTS(text, voiceId);
-        } else {
-          throw new Error("不支持的语音引擎。");
-        }
+        const audioBlob = await synthesizeEdgeTTS(text, voiceId, rate);
 
         if (!audioBlob) {
           throw new Error("语音合成失败，未获得音频数据。");
         }
 
-        setGenerateStatus("语音已生成，正在用 Rhubarb 分析嘴型...", "warn");
+        setGenerateStatus("语音已生成，正在分析嘴型...", "warn");
         const duration = await getAudioDuration(audioBlob);
         const rhubarbData = await analyzeWithRhubarbWasm(audioBlob, text);
         cues = normalizeMouthCues(rhubarbData.mouthCues || []);
@@ -1074,10 +923,9 @@
         updateLoadButtonState();
         updateExportButtons();
         setGenerateStatus(
-          `生成完成：${cues.length} 个嘴型片段（Rhubarb），音频时长约 ${duration.toFixed(2)} 秒。`,
+          `生成完成：${cues.length} 个嘴型片段，音频时长约 ${duration.toFixed(2)} 秒。`,
           "ok",
         );
-        log(`文本生成完成：${cues.length} 个 mouth cue（Rhubarb），时长约 ${duration.toFixed(2)} 秒。`);
         setStatus("文本素材已生成", "ok");
       } catch (error) {
         generatedReady = false;
@@ -1086,7 +934,6 @@
         updateLoadButtonState();
         updateExportButtons();
         setGenerateStatus(`生成失败：${error.message}`, "error");
-        log(`文本生成失败：${error.message}`);
         setStatus("文本生成失败", "error");
       } finally {
         els.generateBtn.disabled = false;
@@ -1096,13 +943,11 @@
     async function preloadRhubarbEngine() {
       try {
         await ensureRhubarbEngine();
-        els.rhubarbBadge.textContent = "Rhubarb 引擎已就绪（浏览器内运行）";
+        els.rhubarbBadge.textContent = "嘴型分析已就绪";
         els.rhubarbBadge.className = "server-badge ok";
-        log("Rhubarb WASM 引擎加载完成。");
       } catch (error) {
-        els.rhubarbBadge.textContent = `Rhubarb 引擎加载失败：${error.message}`;
+        els.rhubarbBadge.textContent = `嘴型分析加载失败：${error.message}`;
         els.rhubarbBadge.className = "server-badge error";
-        log(`Rhubarb WASM 引擎加载失败：${error.message}`);
       }
     }
 
@@ -1139,7 +984,7 @@
         });
 
         if (!result?.mouthCues?.length) {
-          throw new Error("Rhubarb 没有返回有效的 mouthCues。");
+          throw new Error("没有返回有效的嘴型数据。");
         }
 
         return {
@@ -1156,27 +1001,11 @@
       }
     }
 
-    function restoreSettings() {
-      const defaultServerUrl = window.location.protocol.startsWith("http")
-        ? window.location.origin
-        : "http://localhost:3921";
-      els.azureKey.value = localStorage.getItem(STORAGE_KEYS.azureKey) || "";
-      els.azureRegion.value = localStorage.getItem(STORAGE_KEYS.azureRegion) || "eastasia";
-      els.elevenlabsKey.value = localStorage.getItem(STORAGE_KEYS.elevenlabsKey) || "";
-      els.serverUrl.value = localStorage.getItem(STORAGE_KEYS.serverUrl) || defaultServerUrl;
-      els.ttsEngine.value = localStorage.getItem(STORAGE_KEYS.ttsEngine) || "edge";
-    }
-
-    function saveSettings() {
-      localStorage.setItem(STORAGE_KEYS.azureKey, els.azureKey.value.trim());
-      localStorage.setItem(STORAGE_KEYS.azureRegion, els.azureRegion.value.trim() || "eastasia");
-      localStorage.setItem(STORAGE_KEYS.elevenlabsKey, els.elevenlabsKey.value.trim());
-      localStorage.setItem(STORAGE_KEYS.serverUrl, els.serverUrl.value.trim() || "http://localhost:3921");
-      localStorage.setItem(STORAGE_KEYS.ttsEngine, els.ttsEngine.value);
-    }
-
     function getServerBaseUrl() {
-      return (els.serverUrl.value.trim() || "http://localhost:3921").replace(/\/$/, "");
+      if (window.location.protocol.startsWith("http")) {
+        return window.location.origin;
+      }
+      return "http://localhost:3921";
     }
 
     async function refreshServerHealth() {
@@ -1184,98 +1013,9 @@
         const response = await fetch(`${getServerBaseUrl()}/api/health`, { cache: "no-store" });
         if (!response.ok) throw new Error("health check failed");
         serverHealth = await response.json();
-        els.serverBadge.textContent = "语音代理已连接（Kokoro / Edge / Azure / ElevenLabs）";
-        els.serverBadge.className = "server-badge ok";
-        if (serverHealth.kokoro) {
-          els.kokoroBadge.textContent = "Kokoro 已就绪（本地开源语音）";
-          els.kokoroBadge.className = "server-badge ok";
-        } else {
-          els.kokoroBadge.textContent = "Kokoro 未启动 — 请运行 start-kokoro.bat";
-          els.kokoroBadge.className = "server-badge warn";
-        }
       } catch {
-        serverHealth = { ok: false, ttsProxy: false, kokoro: false };
-        els.serverBadge.textContent = "语音代理未启动 — 请双击 start.bat 后刷新页面";
-        els.serverBadge.className = "server-badge warn";
-        els.kokoroBadge.textContent = "Kokoro 状态未知（请先启动语音代理）";
-        els.kokoroBadge.className = "server-badge warn";
+        serverHealth = { ok: false, ttsProxy: false };
       }
-    }
-
-    async function loadElevenLabsVoices() {
-      const apiKey = els.elevenlabsKey.value.trim();
-      if (!apiKey) {
-        setGenerateStatus("请先填写 ElevenLabs API Key。", "error");
-        return;
-      }
-
-      saveSettings();
-      els.loadElevenlabsVoicesBtn.disabled = true;
-      try {
-        const response = await fetch(
-          `${getServerBaseUrl()}/api/elevenlabs/voices?apiKey=${encodeURIComponent(apiKey)}`,
-        );
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "读取声音列表失败");
-        const voices = (data.voices || []).map((voice) => ({
-          id: voice.id,
-          label: `${voice.label}${voice.category ? `（${voice.category}）` : ""}`,
-        }));
-        localStorage.setItem(STORAGE_KEYS.elevenlabsVoices, JSON.stringify(voices));
-        populateVoiceOptions();
-        setGenerateStatus(`已加载 ${voices.length} 个 ElevenLabs 声音。`, "ok");
-        log(`ElevenLabs 声音列表已更新：${voices.length} 个。`);
-      } catch (error) {
-        setGenerateStatus(`加载 ElevenLabs 声音失败：${error.message}`, "error");
-        log(`加载 ElevenLabs 声音失败：${error.message}`);
-      } finally {
-        els.loadElevenlabsVoicesBtn.disabled = false;
-      }
-    }
-
-    function readStoredElevenLabsVoices() {
-      try {
-        const raw = localStorage.getItem(STORAGE_KEYS.elevenlabsVoices);
-        return raw ? JSON.parse(raw) : [];
-      } catch {
-        return [];
-      }
-    }
-
-    async function synthesizeAzureTTS(text, voice, rate = 1) {
-      const apiKey = els.azureKey.value.trim();
-      const region = els.azureRegion.value.trim() || "eastasia";
-      if (!apiKey) throw new Error("请先填写 Azure Speech API Key。");
-
-      const response = await fetch(`${getServerBaseUrl()}/api/tts/azure`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKey, region, text, voice, rate }),
-      });
-
-      if (!response.ok) {
-        throw new Error(await parseApiError(response));
-      }
-
-      return response.blob();
-    }
-
-    async function synthesizeElevenLabsTTS(text, voiceId) {
-      const apiKey = els.elevenlabsKey.value.trim();
-      if (!apiKey) throw new Error("请先填写 ElevenLabs API Key。");
-      if (!voiceId) throw new Error("请选择 ElevenLabs 声音。");
-
-      const response = await fetch(`${getServerBaseUrl()}/api/tts/elevenlabs`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKey, text, voiceId }),
-      });
-
-      if (!response.ok) {
-        throw new Error(await parseApiError(response));
-      }
-
-      return response.blob();
     }
 
     function normalizeMouthCues(mouthCues) {
@@ -1294,13 +1034,13 @@
       const canExportJson = Boolean(generatedJsonData && generatedJsonData.mouthCues?.length);
       els.downloadAudioBtn.disabled = !canExportAudio;
       els.downloadJsonBtn.disabled = !canExportJson;
+      els.downloadJsonBtnGenerate.disabled = !canExportJson;
     }
 
     function downloadGeneratedAudio() {
       if (!generatedAudioBlob) return;
       const extension = getBlobExtension(generatedAudioBlob);
       downloadBlob(generatedAudioBlob, `speech.${extension}`);
-      log(`已下载音频 speech.${extension}`);
     }
 
     function downloadGeneratedJson() {
@@ -1309,7 +1049,6 @@
         type: "application/json",
       });
       downloadBlob(blob, "mouth.json");
-      log("已下载 mouth.json");
     }
 
     function downloadBlob(blob, filename) {
@@ -1329,33 +1068,12 @@
       return "mp3";
     }
 
-    async function synthesizeKokoroTTS(text, voice, rate = 1) {
-      if (!serverHealth.ok) {
-        throw new Error("请先双击 start.bat 启动语音代理，并用 http://localhost:3921 打开本页面。");
-      }
-      if (!serverHealth.kokoro) {
-        throw new Error("Kokoro 未启动。请再打开一个窗口运行 start-kokoro.bat，等待出现 ready 后再生成。");
-      }
-
-      const selected = els.ttsVoice.selectedOptions[0];
-      const lang = selected?.dataset?.lang || KOKORO_VOICES.find((item) => item.id === voice)?.lang || "a";
-
-      const response = await fetch(`${getServerBaseUrl()}/api/tts/kokoro`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, voice, rate, lang }),
-      });
-
-      if (!response.ok) {
-        throw new Error(await parseApiError(response));
-      }
-
-      return response.blob();
-    }
-
     async function synthesizeEdgeTTS(text, voice, rate = 1) {
       if (!serverHealth.ok) {
-        throw new Error("请先双击 start.bat 启动语音代理，并用 http://localhost:3921 打开本页面。");
+        await refreshServerHealth();
+      }
+      if (!serverHealth.ok) {
+        throw new Error("无法连接语音服务。请确认已通过本站地址打开页面。");
       }
 
       const response = await fetch(`${getServerBaseUrl()}/api/tts/edge`, {
@@ -1369,15 +1087,6 @@
       }
 
       return response.blob();
-    }
-
-    function escapeXml(text) {
-      return String(text)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&apos;");
     }
 
     async function getAudioDuration(blob) {
@@ -1400,8 +1109,7 @@
       if (!els.riveFile.files[0]) return;
 
       destroyRive();
-      setStatus("正在载入 Rive runtime", "warn");
-      log("开始载入 Rive 文件。");
+      setStatus("正在载入 Rive", "warn");
 
       try {
         const rive = await loadRiveRuntime();
@@ -1409,8 +1117,7 @@
         const selectedFit = getFit(rive, els.fit.value);
         createRiveInstance(rive, buffer, selectedFit, els.stateMachine.value.trim(), false);
       } catch (error) {
-        setStatus("载入失败", "error");
-        log(`载入失败：${error.message}`);
+        setStatus(`载入失败：${error.message}`, "error");
       }
     }
 
@@ -1434,7 +1141,6 @@
 
           if (!requestedMachine && names[0] && !isAutoReload) {
             const firstMachine = names[0];
-            log(`检测到 State Machine：${firstMachine}。正在自动用它重新载入。`);
             els.stateMachine.value = firstMachine;
             riveInstance.cleanup?.();
             riveInstance = null;
@@ -1449,11 +1155,9 @@
           els.restartBtn.disabled = false;
           els.seek.disabled = false;
           setStatus("Rive 已载入，可以播放", "ok");
-          log("Rive 载入成功。");
         },
         onLoadError: (error) => {
-          setStatus("载入失败", "error");
-          log(`Rive 文件载入失败：${error?.message || error || "未知错误"}`);
+          setStatus(`载入失败：${error?.message || error || "未知错误"}`, "error");
         },
       });
     }
@@ -1464,9 +1168,7 @@
       const usingViewModel = els.dataMode.value === "viewModel";
 
       const machineName = els.stateMachine.value.trim() || names[0];
-      if (!machineName) {
-        log("没有检测到 State Machine。ViewModel 模式下仍会尝试绑定数据。");
-      } else {
+      if (machineName) {
         els.stateMachine.value = machineName;
         riveInstance.play(machineName);
       }
@@ -1482,19 +1184,8 @@
       mouthInput = inputs.find((input) => input.name === wantedInputName);
 
       if (!mouthInput) {
-        const inputNames = inputs.map((input) => `${input.name}`).join(", ") || "无";
-        log(`找不到输入 ${wantedInputName}。这个 State Machine 里检测到的输入：${inputNames}`);
-        if (!inputs.length) {
-          log("提示：如果 Rive 里明明有输入，请确认当前加载的是包含 mouth 的 Artboard/State Machine，并且改完后已经重新导出 .riv。");
-        }
         setStatus("找不到 mouth 输入", "error");
         return;
-      }
-
-      if (typeof mouthInput.value !== "number") {
-        log(`已找到 ${wantedInputName}，但它看起来不是 Number 输入。建议在 Rive 里创建 Number input。`);
-      } else {
-        log(`已连接 State Machine：${machineName}，输入：${wantedInputName}。`);
       }
 
       setMouthShape("X");
@@ -1512,7 +1203,6 @@
         riveInstance.viewModelByIndex?.(0);
 
       if (!viewModel) {
-        log("没有找到 ViewModel。请确认 .riv 已导出 Data Binding / ViewModel 数据。");
         setStatus("找不到 ViewModel", "error");
         return;
       }
@@ -1525,7 +1215,6 @@
         viewModel.instance?.();
 
       if (!viewModelInstance) {
-        log(`找到 ViewModel：${viewModel.name}，但没有可绑定的 instance。`);
         setStatus("找不到 ViewModel instance", "error");
         return;
       }
@@ -1534,25 +1223,11 @@
       mouthViewModelNumber = viewModelInstance.number?.(propertyPath);
 
       if (!mouthViewModelNumber) {
-        const propertyNames = getViewModelPropertyNames(viewModelInstance);
-        log(`找不到 ViewModel Number 属性 ${propertyPath}。检测到的属性：${propertyNames || "无"}`);
         setStatus("找不到 ViewModel mouth", "error");
         return;
       }
 
-      log(`已连接 ViewModel：${viewModel.name || "未命名"}，Number 属性：${propertyPath}。`);
       setStatus("ViewModel 已连接", "ok");
-    }
-
-    function getViewModelPropertyNames(instance) {
-      try {
-        return (instance.properties || [])
-          .map((property) => property.name || property._name || "")
-          .filter(Boolean)
-          .join(", ");
-      } catch (error) {
-        return "";
-      }
     }
 
     function play() {
@@ -1633,22 +1308,6 @@
       els.timeText.textContent = `${current.toFixed(2)} / ${duration.toFixed(2)}s`;
     }
 
-    async function readRhubarbJson(file) {
-      const text = await file.text();
-      const data = JSON.parse(text);
-      if (!Array.isArray(data.mouthCues)) {
-        throw new Error("没有找到 mouthCues。请确认是 Rhubarb 导出的 JSON。");
-      }
-      return data.mouthCues
-        .map((cue) => ({
-          start: Number(cue.start),
-          end: Number(cue.end),
-          value: String(cue.value || "X").toUpperCase(),
-        }))
-        .filter((cue) => Number.isFinite(cue.start) && Number.isFinite(cue.end))
-        .sort((a, b) => a.start - b.start);
-    }
-
     function loadRiveRuntime() {
       if (window.rive) {
         window.rive.RuntimeLoader?.setWasmUrl?.(RIVE_WASM_URL);
@@ -1669,7 +1328,7 @@
             window.rive.RuntimeLoader?.setWasmUrl?.(RIVE_WASM_URL);
             resolve(window.rive);
           };
-          script.onerror = () => reject(new Error("无法从 CDN 载入 Rive runtime。请检查网络。"));
+          script.onerror = () => reject(new Error("无法载入 Rive runtime。请确认已通过本站地址打开页面。"));
           document.head.appendChild(script);
         });
       }
@@ -1702,11 +1361,6 @@
     function setStatus(message, type) {
       els.status.textContent = message;
       els.status.className = `status ${type || ""}`.trim();
-    }
-
-    function log(message) {
-      const time = new Date().toLocaleTimeString();
-      els.log.textContent = `[${time}] ${message}\n${els.log.textContent}`.trim();
     }
 
     function renderMapping() {

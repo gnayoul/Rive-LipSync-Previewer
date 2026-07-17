@@ -1,13 +1,4 @@
 services:
-  kokoro:
-    build: ./kokoro_server
-    restart: unless-stopped
-    volumes:
-      - kokoro-hf-cache:/data/huggingface
-    # 仅内网访问，不对外暴露 3922
-    expose:
-      - "3922"
-
   web:
     build: .
     restart: unless-stopped
@@ -15,9 +6,3 @@ services:
       - "3921:3921"
     environment:
       PORT: "3921"
-      KOKORO_URL: "http://kokoro:3922"
-    depends_on:
-      - kokoro
-
-volumes:
-  kokoro-hf-cache:
