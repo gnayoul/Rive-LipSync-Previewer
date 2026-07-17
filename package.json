@@ -1,0 +1,17 @@
+{
+  "name": "rive-lipsync-previewer",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Rive lip sync previewer with browser Rhubarb WASM and optional TTS proxy",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node server.mjs"
+  },
+  "dependencies": {
+    "edge-tts-universal": "^1.4.0"
+  }
+}
