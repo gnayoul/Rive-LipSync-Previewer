@@ -7,3 +7,6 @@ __pycache__/
 *.log
 CONTINUATION.txt
 CONTINUE.txt
+_ref/
+web/node_modules/
+web/dist/

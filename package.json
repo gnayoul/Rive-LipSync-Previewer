@@ -9,7 +9,9 @@
   },
   "scripts": {
     "start": "node server.mjs",
-    "dev": "node server.mjs"
+    "dev": "node server.mjs",
+    "dev:web": "npm --prefix web run dev",
+    "build:web": "npm --prefix web run build"
   },
   "dependencies": {
     "edge-tts-universal": "^1.4.0"
