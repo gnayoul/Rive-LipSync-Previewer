@@ -21,6 +21,9 @@ const TTS_MAX_CONCURRENT = Number(process.env.TTS_MAX_CONCURRENT || 1);
 const DOUBLE_UNIT =
   /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Extended_Pictographic}]/u;
 
+const DIST_ROOT = path.resolve(__dirname, "web", "dist");
+const VENDOR_ROOT = path.resolve(__dirname, "vendor");
+
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -33,6 +36,12 @@ const MIME_TYPES = {
   ".wav": "audio/wav",
   ".mp3": "audio/mpeg",
   ".txt": "text/plain; charset=utf-8",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".webp": "image/webp",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
 };
 
 /** @type {Map<string, number[]>} */
@@ -279,25 +288,55 @@ async function synthesizeEdgeSpeech(text, voice, rate = 1) {
   }
 }
 
-async function serveStatic(req, res, pathname) {
-  const safePath = pathname === "/" ? "/index.html" : pathname;
-  const filePath = path.join(__dirname, decodeURIComponent(safePath));
-  const resolved = path.resolve(filePath);
+function isPathInsideRoot(root, resolved) {
+  const relative = path.relative(root, resolved);
+  return (
+    relative === "" ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative))
+  );
+}
 
-  if (!resolved.startsWith(__dirname)) {
+async function sendFile(res, resolved) {
+  const content = await fs.readFile(resolved);
+  const ext = path.extname(resolved).toLowerCase();
+  res.writeHead(200, {
+    "Content-Type": MIME_TYPES[ext] || "application/octet-stream",
+    "Access-Control-Allow-Origin": "*",
+  });
+  res.end(content);
+}
+
+async function serveStatic(req, res, pathname) {
+  const decoded = decodeURIComponent(pathname);
+  const isVendor = decoded === "/vendor" || decoded.startsWith("/vendor/");
+  const root = isVendor ? VENDOR_ROOT : DIST_ROOT;
+  const relativePath = isVendor
+    ? decoded.slice("/vendor".length) || "/"
+    : decoded === "/"
+      ? "/index.html"
+      : decoded;
+  const resolved = path.resolve(path.join(root, relativePath));
+
+  if (!isPathInsideRoot(root, resolved)) {
     sendJson(res, 403, { error: "Forbidden" });
     return;
   }
 
   try {
-    const content = await fs.readFile(resolved);
-    const ext = path.extname(resolved).toLowerCase();
-    res.writeHead(200, {
-      "Content-Type": MIME_TYPES[ext] || "application/octet-stream",
-      "Access-Control-Allow-Origin": "*",
-    });
-    res.end(content);
+    await sendFile(res, resolved);
   } catch {
+    // SPA fallback for client routes (not /api or /vendor).
+    if (!isVendor && !decoded.startsWith("/api")) {
+      const indexPath = path.join(DIST_ROOT, "index.html");
+      try {
+        if (isPathInsideRoot(DIST_ROOT, indexPath)) {
+          await sendFile(res, indexPath);
+          return;
+        }
+      } catch {
+        // fall through to 404
+      }
+    }
     sendJson(res, 404, { error: "File not found" });
   }
 }
