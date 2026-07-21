@@ -3,7 +3,10 @@ services:
     name: rive-lipsync-previewer
     runtime: node
     plan: free
-    buildCommand: npm ci && npm --prefix web ci && npm run build:web
+    # Root deps without scripts, then explicitly build Vite → web/dist (gitignored).
+    # package.json postinstall also runs scripts/build-web.mjs for dashboard
+    # services still configured with plain `npm install`.
+    buildCommand: npm ci --ignore-scripts && node scripts/build-web.mjs && test -f web/dist/index.html
     startCommand: node server.mjs
     envVars:
       - key: NODE_VERSION

@@ -12,7 +12,9 @@
     "dev": "node server.mjs",
     "dev:web": "npm --prefix web run dev",
     "dev:web:chrome": "npm --prefix web run dev:chrome",
-    "build:web": "npm --prefix web run build"
+    "build:web": "npm --prefix web run build",
+    "build": "node scripts/build-web.mjs",
+    "postinstall": "node scripts/build-web.mjs"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",

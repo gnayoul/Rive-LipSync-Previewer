@@ -22,7 +22,9 @@ const DOUBLE_UNIT =
   /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Extended_Pictographic}]/u;
 
 const DIST_ROOT = path.resolve(__dirname, "web", "dist");
+const DIST_INDEX = path.join(DIST_ROOT, "index.html");
 const VENDOR_ROOT = path.resolve(__dirname, "vendor");
+let distIndexReady = false;
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -94,8 +96,12 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+await assertDistReady();
+
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`Rive LipSync Previewer running at http://0.0.0.0:${PORT}`);
+  console.log(`Static root: ${DIST_ROOT}`);
+  console.log(`Serving SPA index: ${DIST_INDEX}`);
 });
 
 async function handleEdgeTTS(req, res) {
@@ -306,6 +312,21 @@ async function sendFile(res, resolved) {
   res.end(content);
 }
 
+async function assertDistReady() {
+  try {
+    await fs.access(DIST_INDEX);
+    distIndexReady = true;
+  } catch {
+    distIndexReady = false;
+    console.error(
+      `[serveStatic] FATAL: missing SPA entry ${DIST_INDEX}. ` +
+        `cwd=${process.cwd()} __dirname=${__dirname}. ` +
+        `Run: npm run build (or ensure Render buildCommand/postinstall built web/dist).`,
+    );
+    process.exit(1);
+  }
+}
+
 async function serveStatic(req, res, pathname) {
   const decoded = decodeURIComponent(pathname);
   const isVendor = decoded === "/vendor" || decoded.startsWith("/vendor/");
@@ -322,22 +343,46 @@ async function serveStatic(req, res, pathname) {
     return;
   }
 
+  if (!isVendor && !distIndexReady) {
+    console.error(
+      `[serveStatic] web/dist not ready; requested ${decoded}; expected ${DIST_INDEX}`,
+    );
+    sendJson(res, 503, {
+      error: "Frontend build missing",
+      detail: `Expected ${DIST_INDEX}. Run npm run build on the server image.`,
+      distRoot: DIST_ROOT,
+    });
+    return;
+  }
+
   try {
     await sendFile(res, resolved);
-  } catch {
+  } catch (error) {
     // SPA fallback for client routes (not /api or /vendor).
     if (!isVendor && !decoded.startsWith("/api")) {
-      const indexPath = path.join(DIST_ROOT, "index.html");
       try {
-        if (isPathInsideRoot(DIST_ROOT, indexPath)) {
-          await sendFile(res, indexPath);
+        if (isPathInsideRoot(DIST_ROOT, DIST_INDEX)) {
+          await sendFile(res, DIST_INDEX);
           return;
         }
-      } catch {
-        // fall through to 404
+      } catch (fallbackError) {
+        console.error(
+          `[serveStatic] SPA fallback failed for ${decoded}:`,
+          fallbackError?.message || fallbackError,
+          `| missing ${DIST_INDEX}`,
+        );
       }
+    } else {
+      console.error(
+        `[serveStatic] File not found: ${resolved} (${error?.code || error?.message || error})`,
+      );
     }
-    sendJson(res, 404, { error: "File not found" });
+    sendJson(res, 404, {
+      error: "File not found",
+      path: decoded,
+      resolved,
+      distRoot: DIST_ROOT,
+    });
   }
 }
 
