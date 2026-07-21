@@ -17,8 +17,17 @@ export default defineConfig({
       "@": path.resolve(dirname, "./src"),
     },
   },
+  optimizeDeps: {
+    exclude: ["@huggingface/transformers"],
+  },
+  worker: {
+    format: "es",
+  },
   server: {
     port: 5173,
+    // Intentionally no COOP/COEP: crossOriginIsolated would help WASM threads /
+    // SharedArrayBuffer, but breaks Vite HMR + Rive CDN scripts in this app.
+    // ASR falls back to single-thread WASM when SAB is unavailable.
     proxy: {
       "/api": {
         target: "http://127.0.0.1:3921",

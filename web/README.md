@@ -18,7 +18,16 @@ cd C:\Users\Yung\Desktop\Work\Rive-LipSync-Previewer\web
 npm run dev
 ```
 
-打开 http://localhost:5173  
+用**系统 Chrome**打开 http://localhost:5173（推荐，完整 WebGPU ASR）。
+
+也可用（尝试用默认浏览器打开同一地址）：
+
+```powershell
+npm run dev:chrome
+```
+
+> **Cursor 内置预览 / Simple Browser**：对 WebGPU、大模型 WASM 支持很差，容易卡住。  
+> 预览 UI / 嘴型可在 Cursor 里看；字幕 ASR 请用 Chrome。可用 `?asrDevice=wasm` 强制 WASM。
 
 旧版单页仍在根目录：http://localhost:3921
 

@@ -5,6 +5,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { useLocale } from "@/lib/i18n/locale-context"
 
 type StatusPanelProps = {
   shapeNow: string
@@ -20,17 +21,18 @@ export function StatusPanel({
   cueCount,
   machineNames,
 }: StatusPanelProps) {
+  const { t } = useLocale()
   const rows = [
-    { label: "当前嘴型", value: shapeNow },
-    { label: "当前数值", value: valueNow },
-    { label: "嘴型片段数量", value: String(cueCount) },
-    { label: "检测到的 State Machine", value: machineNames },
+    { label: t("statusPanel.shapeNow"), value: shapeNow },
+    { label: t("statusPanel.valueNow"), value: valueNow },
+    { label: t("statusPanel.cueCount"), value: String(cueCount) },
+    { label: t("statusPanel.stateMachines"), value: machineNames },
   ]
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>当前状态</CardTitle>
+        <CardTitle>{t("statusPanel.title")}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-0 pt-0">
         {rows.map((row, index) => (

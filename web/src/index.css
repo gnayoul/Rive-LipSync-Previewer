@@ -7,6 +7,13 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+  Tailwind v4 wraps hover: in @media (hover: hover). On hybrid / touch-primary
+  devices (and some Electron/Cursor Simple Browser shells) that query is false,
+  so every hover: utility silently never applies. Restore classic :hover.
+*/
+@custom-variant hover (&:hover);
+
 /* fontsource 注册名是 Geist Variable / Geist Mono Variable，不是 Geist */
 @theme inline {
     --font-heading: var(--font-sans);
@@ -89,9 +96,10 @@
     --primary-foreground: oklch(0.979 0.021 166.113);
     --secondary: oklch(0.967 0.001 286.375);
     --secondary-foreground: oklch(0.21 0.006 285.885);
-    --muted: oklch(0.97 0 0);
+    /* Slightly darker than background so ghost/outline hover is visible */
+    --muted: oklch(0.94 0 0);
     --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
+    --accent: oklch(0.94 0 0);
     --accent-foreground: oklch(0.205 0 0);
     --destructive: oklch(0.577 0.245 27.325);
     --border: oklch(0.922 0 0);
@@ -107,7 +115,7 @@
     --sidebar-foreground: oklch(0.145 0 0);
     --sidebar-primary: oklch(0.596 0.145 163.225);
     --sidebar-primary-foreground: oklch(0.979 0.021 166.113);
-    --sidebar-accent: oklch(0.97 0 0);
+    --sidebar-accent: oklch(0.94 0 0);
     --sidebar-accent-foreground: oklch(0.205 0 0);
     --sidebar-border: oklch(0.922 0 0);
     --sidebar-ring: oklch(0.708 0 0);
@@ -148,9 +156,10 @@
     --primary-foreground: oklch(0.979 0.021 166.113);
     --secondary: oklch(0.274 0.006 286.033);
     --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
+    /* Lighter than background/card so ghost/outline hover reads clearly */
+    --muted: oklch(0.32 0 0);
     --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
+    --accent: oklch(0.32 0 0);
     --accent-foreground: oklch(0.985 0 0);
     --destructive: oklch(0.704 0.191 22.216);
     --border: oklch(1 0 0 / 10%);
@@ -165,7 +174,7 @@
     --sidebar-foreground: oklch(0.985 0 0);
     --sidebar-primary: oklch(0.696 0.17 162.48);
     --sidebar-primary-foreground: oklch(0.262 0.051 172.552);
-    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent: oklch(0.32 0 0);
     --sidebar-accent-foreground: oklch(0.985 0 0);
     --sidebar-border: oklch(1 0 0 / 10%);
     --sidebar-ring: oklch(0.556 0 0);
@@ -211,5 +220,87 @@
   select,
   textarea {
     font: inherit;
+  }
+}
+
+/* 与 ScrollArea 拇指一致：细、圆角、浅灰、无轨道/箭头 */
+html,
+.app-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--foreground) 15%, transparent)
+    transparent;
+}
+html::-webkit-scrollbar,
+.app-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+/* 全局隐藏 Windows 风格上下/左右箭头按钮（含 textarea、viewport 等原生滚动条） */
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+html::-webkit-scrollbar-track,
+html::-webkit-scrollbar-corner,
+.app-scrollbar::-webkit-scrollbar-track,
+.app-scrollbar::-webkit-scrollbar-corner {
+  background: transparent;
+}
+html::-webkit-scrollbar-thumb,
+.app-scrollbar::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background-color: color-mix(in oklab, var(--foreground) 15%, transparent);
+}
+html::-webkit-scrollbar-thumb:hover,
+.app-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklab, var(--foreground) 25%, transparent);
+}
+
+/* 生成中状态：中性色 + AI thinking 风格文字扫光 */
+@keyframes status-thinking-shimmer {
+  0% {
+    background-position: 200% center;
+  }
+  100% {
+    background-position: -200% center;
+  }
+}
+
+@keyframes status-thinking-dot-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+@layer utilities {
+  .status-thinking {
+    background-image: linear-gradient(
+      90deg,
+      color-mix(in oklab, var(--muted-foreground) 55%, transparent) 0%,
+      color-mix(in oklab, var(--muted-foreground) 55%, transparent) 35%,
+      var(--foreground) 50%,
+      color-mix(in oklab, var(--muted-foreground) 55%, transparent) 65%,
+      color-mix(in oklab, var(--muted-foreground) 55%, transparent) 100%
+    );
+    background-size: 200% 100%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    animation: status-thinking-shimmer 1.8s ease-in-out infinite;
+  }
+
+  .status-thinking-dot {
+    background-color: color-mix(
+      in oklab,
+      var(--muted-foreground) 70%,
+      transparent
+    );
+    animation: status-thinking-dot-pulse 1.8s ease-in-out infinite;
   }
 }

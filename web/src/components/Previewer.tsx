@@ -6,31 +6,55 @@ import { type RiveSettingsValues } from "@/components/blocks/RiveSettingsPanel"
 import { SourcePanel } from "@/components/blocks/SourcePanel"
 import { UploadRiveDialog } from "@/components/blocks/UploadRiveDialog"
 import {
-  DEFAULT_RIVE_URL,
+  DEFAULT_ASR_LANGUAGE,
   DEFAULT_SPEECH_TEXT,
   DEFAULT_VOICE,
+  PRESET_MOUTH_URL,
+  PRESET_SPEECH_URL,
   SHAPE_TO_VALUE,
+  genderForVoice,
+  riveFileNameForGender,
+  riveUrlForGender,
   type MouthCue,
   type RhubarbJson,
-  type StatusTone,
+  type VoiceGender,
 } from "@/lib/constants"
+import { isRestrictedPreviewBrowser } from "@/lib/asr/env"
+import {
+  cancelAsr,
+  transcribeAudioFile,
+  type AsrLanguagePreference,
+  type AsrStatus,
+} from "@/lib/asr/transcribe"
 import {
   downloadBlob,
   downloadJson,
   findCueAtTime,
+  resolveAnalyzeError,
+  resolveSpeechGenerateError,
   getBlobExtension,
   normalizeMouthCues,
   refreshServerHealth,
   synthesizeEdgeTTS,
+  ERR_TTS_NO_AUDIO,
 } from "@/lib/previewer"
 import { analyzeWithRhubarb, ensureRhubarbEngine } from "@/lib/rhubarb"
 import { getFit, loadRiveRuntime } from "@/lib/rive-loader"
+import {
+  WEIGHTED_TEXT_LIMIT,
+  getWeightedLength,
+} from "@/lib/weighted-text"
+import { useLocale } from "@/lib/i18n/locale-context"
+import type { TabStatus } from "@/components/blocks/SourcePanel"
+
+const EMPTY_STATUS: TabStatus = { messageKey: null, tone: "default" }
 
 /**
  * 页面组装层：只拼功能块 + 接线业务逻辑。
  * UI 组合遵循 docs/shadcn-patterns.md（Playground + Field）。
  */
 export function Previewer() {
+  const { t } = useLocale()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
   const riveRef = useRef<{
@@ -46,6 +70,7 @@ export function Previewer() {
   const offsetRef = useRef(0)
   const uploadTokenRef = useRef(0)
   const generateTokenRef = useRef(0)
+  const asrAbortRef = useRef<AbortController | null>(null)
   const preloadDoneRef = useRef(false)
   const textAudioUrlRef = useRef<string | null>(null)
   const voiceAudioUrlRef = useRef<string | null>(null)
@@ -54,22 +79,19 @@ export function Previewer() {
   const speechTextRef = useRef(DEFAULT_SPEECH_TEXT)
   const voiceRef = useRef(DEFAULT_VOICE)
   const rateRef = useRef(1)
+  /** 最近一次加载的预设 riv 性别；自定义上传期间不更新 */
+  const presetGenderRef = useRef<VoiceGender | null>(null)
 
   const [mode, setMode] = useState<"upload" | "generate">("generate")
   const [riveFile, setRiveFile] = useState<File | null>(null)
+  const [customRiveName, setCustomRiveName] = useState<string | null>(null)
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false)
   const [audioFileName, setAudioFileName] = useState<string | null>(null)
   const [speechText, setSpeechText] = useState(DEFAULT_SPEECH_TEXT)
   const [voice, setVoice] = useState<string>(DEFAULT_VOICE)
   const [rate, setRate] = useState(1)
-  const [textStatus, setTextStatus] = useState<{
-    msg: string
-    tone: StatusTone
-  }>({ msg: "正在准备嘴型分析...", tone: "default" })
-  const [voiceStatus, setVoiceStatus] = useState<{
-    msg: string
-    tone: StatusTone
-  }>({ msg: "正在准备嘴型分析...", tone: "default" })
+  const [textStatus, setTextStatus] = useState<TabStatus>(EMPTY_STATUS)
+  const [voiceStatus, setVoiceStatus] = useState<TabStatus>(EMPTY_STATUS)
   const [generating, setGenerating] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [textCues, setTextCues] = useState<MouthCue[]>([])
@@ -77,6 +99,11 @@ export function Previewer() {
   const [textJson, setTextJson] = useState<RhubarbJson | null>(null)
   const [voiceJson, setVoiceJson] = useState<RhubarbJson | null>(null)
   const [textAudioBlob, setTextAudioBlob] = useState<Blob | null>(null)
+  const [speechTranscript, setSpeechTranscript] = useState("")
+  const [asrLanguage, setAsrLanguage] =
+    useState<AsrLanguagePreference>(DEFAULT_ASR_LANGUAGE)
+  const [asrStatus, setAsrStatus] = useState<AsrStatus>("idle")
+  const [asrError, setAsrError] = useState(false)
   const [controlsReady, setControlsReady] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [timeText, setTimeText] = useState("0.00 / 0.00s")
@@ -102,12 +129,7 @@ export function Previewer() {
   }, [settings.offset])
 
   useEffect(() => {
-    const wasDefault = speechTextRef.current.trim() === DEFAULT_SPEECH_TEXT
     speechTextRef.current = speechText
-    // 用户改掉默认台词后，取消进行中的自动预加载
-    if (wasDefault && speechText.trim() !== DEFAULT_SPEECH_TEXT) {
-      generateTokenRef.current += 1
-    }
   }, [speechText])
 
   useEffect(() => {
@@ -186,16 +208,22 @@ export function Previewer() {
   }, [stopTick])
 
   useEffect(() => {
-    ensureRhubarbEngine()
-      .then(() => {
-        setTextStatus({ msg: "嘴型分析已就绪", tone: "ok" })
-        setVoiceStatus({ msg: "嘴型分析已就绪", tone: "ok" })
+    // Cursor Simple Browser: defer WASM warm-up so first paint isn't starved.
+    const restricted = isRestrictedPreviewBrowser()
+    const warmRhubarb = () => {
+      ensureRhubarbEngine().catch((error: Error) => {
+        const next: TabStatus = {
+          messageKey: "status.rhubarbLoadFail",
+          params: { error: error.message || "unknown" },
+          tone: "error",
+        }
+        setTextStatus(next)
+        setVoiceStatus(next)
       })
-      .catch((error: Error) => {
-        const msg = `嘴型分析加载失败：${error.message}`
-        setTextStatus({ msg, tone: "error" })
-        setVoiceStatus({ msg, tone: "error" })
-      })
+    }
+    const warmTimer = restricted
+      ? window.setTimeout(warmRhubarb, 800)
+      : (warmRhubarb(), undefined)
 
     const onFocus = () => {
       void refreshServerHealth().then((health) => {
@@ -207,41 +235,131 @@ export function Previewer() {
     })
     window.addEventListener("focus", onFocus)
     return () => {
+      if (warmTimer !== undefined) window.clearTimeout(warmTimer)
       window.removeEventListener("focus", onFocus)
       destroyRive()
+      asrAbortRef.current?.abort()
+      cancelAsr()
       if (textAudioUrlRef.current) URL.revokeObjectURL(textAudioUrlRef.current)
       if (voiceAudioUrlRef.current) URL.revokeObjectURL(voiceAudioUrlRef.current)
     }
   }, [destroyRive])
 
+  /** 未上传自定义 .riv 时，按音色性别加载 boy / girl 预设 */
   useEffect(() => {
+    if (customRiveName) return
+
+    const gender = genderForVoice(voice)
+    if (presetGenderRef.current === gender) return
+
     let cancelled = false
-    async function loadDefaultRive() {
+    async function loadPresetRive() {
+      const url = riveUrlForGender(gender)
+      const fileName = riveFileNameForGender(gender)
       try {
-        const response = await fetch(DEFAULT_RIVE_URL)
+        const response = await fetch(url)
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         const blob = await response.blob()
         if (cancelled) return
+        presetGenderRef.current = gender
         setRiveFile(
-          new File([blob], "boy.riv", { type: "application/octet-stream" }),
+          new File([blob], fileName, { type: "application/octet-stream" }),
         )
       } catch (error) {
         if (cancelled) return
         setTextStatus({
-          msg: `默认 Rive 加载失败：${(error as Error).message || "未知错误"}`,
+          messageKey: "status.defaultRiveFail",
+          params: {
+            error: (error as Error).message || "unknown",
+          },
           tone: "error",
         })
       }
     }
-    void loadDefaultRive()
+    void loadPresetRive()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [voice, customRiveName])
+
+  const activeMouthCues = mode === "generate" ? textCues : voiceCues
+  const hasMouthData = activeMouthCues.length > 0
+  const canPlayPreview = controlsReady && hasMouthData
 
   const canDownloadTextJson = Boolean(textJson?.mouthCues?.length)
   const canDownloadTextAudio = Boolean(textAudioBlob)
   const canDownloadVoiceJson = Boolean(voiceJson?.mouthCues?.length)
+  const asrHintVisible =
+    (asrStatus === "loading" || asrStatus === "streaming") &&
+    !speechTranscript.trim()
+
+  const resetAsrState = useCallback(() => {
+    asrAbortRef.current?.abort()
+    asrAbortRef.current = null
+    cancelAsr()
+    setSpeechTranscript("")
+    setAsrError(false)
+    setAsrStatus("idle")
+  }, [])
+
+  /** ASR runs independently of Rhubarb mouth analysis — never blocks preview. */
+  const startAsrForFile = useCallback(
+    (file: File, language: AsrLanguagePreference = asrLanguage) => {
+      asrAbortRef.current?.abort()
+      cancelAsr()
+      const controller = new AbortController()
+      asrAbortRef.current = controller
+      setSpeechTranscript("")
+      setAsrError(false)
+      setAsrStatus("loading")
+
+      void transcribeAudioFile(
+        file,
+        {
+          onStatus: (status) => {
+            if (controller.signal.aborted) return
+            setAsrStatus(status)
+          },
+          onPartial: (text) => {
+            if (controller.signal.aborted) return
+            setSpeechTranscript(text)
+            setAsrStatus("streaming")
+          },
+          onDone: (text) => {
+            if (controller.signal.aborted) return
+            setSpeechTranscript(text)
+            setAsrError(false)
+            setAsrStatus("done")
+          },
+          onError: () => {
+            if (controller.signal.aborted) return
+            setSpeechTranscript("")
+            setAsrError(true)
+            setAsrStatus("error")
+          },
+        },
+        controller.signal,
+        language,
+      ).catch((error) => {
+        if (
+          controller.signal.aborted ||
+          (error instanceof DOMException && error.name === "AbortError")
+        ) {
+          return
+        }
+      })
+    },
+    [asrLanguage],
+  )
+
+  const handleAsrLanguageChange = useCallback(
+    (next: AsrLanguagePreference) => {
+      setAsrLanguage(next)
+      const file = pendingAudioRef.current
+      if (file) startAsrForFile(file, next)
+    },
+    [startAsrForFile],
+  )
 
   const bindAudioSrc = useCallback((url: string | null) => {
     const audio = audioRef.current
@@ -255,10 +373,25 @@ export function Previewer() {
       setMouthShape("X")
       return
     }
+    // Avoid no-op reload that would reset currentTime when React re-syncs.
+    if (audio.getAttribute("src") === url && audio.src) {
+      updateTimeText()
+      return
+    }
     audio.src = url
     audio.load()
     setMouthShape("X")
-  }, [setMouthShape])
+    // Metadata may already be cached; also wait for loadedmetadata via onAudioMeta.
+    if (audio.readyState >= 1) updateTimeText()
+  }, [setMouthShape, updateTimeText])
+
+  // Re-bind after cues land so duration/src survive any TransportBar remount.
+  useEffect(() => {
+    const url =
+      mode === "generate" ? textAudioUrlRef.current : voiceAudioUrlRef.current
+    if (!url) return
+    bindAudioSrc(url)
+  }, [bindAudioSrc, hasMouthData, mode, textCues, voiceCues])
 
   const applyTabPreview = useCallback(
     (nextMode: "upload" | "generate") => {
@@ -417,6 +550,7 @@ export function Previewer() {
     setAudioFileName(file?.name ?? null)
     setVoiceCues([])
     setVoiceJson(null)
+    resetAsrState()
 
     if (voiceAudioUrlRef.current) {
       URL.revokeObjectURL(voiceAudioUrlRef.current)
@@ -425,19 +559,15 @@ export function Previewer() {
 
     if (!file) {
       if (mode === "upload") bindAudioSrc(null)
-      setVoiceStatus({
-        msg: "嘴型分析已就绪",
-        tone: "ok",
-      })
+      setVoiceStatus(EMPTY_STATUS)
       return
     }
 
     voiceAudioUrlRef.current = URL.createObjectURL(file)
     if (mode === "upload") bindAudioSrc(voiceAudioUrlRef.current)
-    setVoiceStatus({
-      msg: "音频已选择，点击「生成嘴型数据」开始分析",
-      tone: "default",
-    })
+    setVoiceStatus(EMPTY_STATUS)
+    // Auto-start Whisper ASR; mouth analysis stays on the CTA button.
+    startAsrForFile(file)
   }
 
   const analyzePendingAudio = async () => {
@@ -448,7 +578,7 @@ export function Previewer() {
     setAnalyzing(true)
     setVoiceCues([])
     setVoiceJson(null)
-    setVoiceStatus({ msg: "正在分析嘴型...", tone: "warn" })
+    setVoiceStatus({ messageKey: "status.analyzing", tone: "warn" })
 
     try {
       await ensureRhubarbEngine()
@@ -460,15 +590,17 @@ export function Previewer() {
       setVoiceJson(rhubarbData)
       if (mode === "upload") cuesRef.current = nextCues
       setVoiceStatus({
-        msg: "嘴型数据已生成，请在左侧播放动画预览",
+        messageKey: "status.analyzeOk",
         tone: "ok",
       })
     } catch (error) {
       if (token !== uploadTokenRef.current) return
       setVoiceCues([])
       setVoiceJson(null)
+      const resolved = resolveAnalyzeError(error)
       setVoiceStatus({
-        msg: `嘴型分析失败：${(error as Error).message}`,
+        messageKey: resolved.messageKey,
+        params: resolved.params,
         tone: "error",
       })
     } finally {
@@ -476,16 +608,22 @@ export function Previewer() {
     }
   }
 
-  const generateSpeech = async (options?: {
-    silentFail?: boolean
-  }): Promise<boolean> => {
+  const generateSpeech = async (): Promise<boolean> => {
     const text = speechTextRef.current.trim()
     if (!text) return false
 
+    if (getWeightedLength(text) > WEIGHTED_TEXT_LIMIT) {
+      setTextStatus({
+        messageKey: "status.textTooLong",
+        params: { limit: WEIGHTED_TEXT_LIMIT },
+        tone: "error",
+      })
+      return false
+    }
+
     const token = ++generateTokenRef.current
-    const silentFail = Boolean(options?.silentFail)
     setGenerating(true)
-    setTextStatus({ msg: "正在生成语音与嘴型...", tone: "warn" })
+    setTextStatus({ messageKey: "status.generating", tone: "warn" })
 
     try {
       await ensureRhubarbEngine()
@@ -498,7 +636,7 @@ export function Previewer() {
         healthOkRef.current,
       )
       if (token !== generateTokenRef.current) return false
-      if (!blob) throw new Error("语音合成失败，未获得音频数据。")
+      if (!blob) throw new Error(ERR_TTS_NO_AUDIO)
 
       const rhubarbData = await analyzeWithRhubarb(blob, text)
       if (token !== generateTokenRef.current) return false
@@ -516,24 +654,19 @@ export function Previewer() {
       }
 
       setTextStatus({
-        msg: "语音与嘴型数据已生成，请在左侧播放动画预览",
+        messageKey: "status.generateOk",
         tone: "ok",
       })
       return true
     } catch (error) {
       if (token !== generateTokenRef.current) return false
-      if (silentFail) {
-        setTextStatus({
-          msg: "默认语音预加载未完成，可手动生成",
-          tone: "default",
-        })
-        return false
-      }
       setTextAudioBlob(null)
       setTextJson(null)
       setTextCues([])
+      const resolved = resolveSpeechGenerateError(error)
       setTextStatus({
-        msg: `生成失败：${(error as Error).message}`,
+        messageKey: resolved.messageKey,
+        params: resolved.params,
         tone: "error",
       })
       return false
@@ -542,29 +675,39 @@ export function Previewer() {
     }
   }
 
-  const generateSpeechRef = useRef(generateSpeech)
-  generateSpeechRef.current = generateSpeech
-
-  // 默认台词：页面就绪后自动预生成语音与嘴型，方便直接预览
+  // 默认台词：加载预置音频 + 嘴型 JSON（无需启动时 TTS），与「已生成」状态一致
   useEffect(() => {
     if (!riveFile) return
 
     let cancelled = false
 
-    async function preloadDefaultSpeech() {
+    async function preloadPresetSpeech() {
       if (preloadDoneRef.current) return
+      // 用户已改过台词则不再覆盖预置结果
       if (speechTextRef.current.trim() !== DEFAULT_SPEECH_TEXT) {
         preloadDoneRef.current = true
         return
       }
 
       try {
-        const health = await refreshServerHealth()
-        healthOkRef.current = Boolean(health.ok)
+        const [audioRes, mouthRes] = await Promise.all([
+          fetch(PRESET_SPEECH_URL),
+          fetch(PRESET_MOUTH_URL),
+        ])
         if (cancelled) return
-        if (!health.ok) return
+        if (!audioRes.ok || !mouthRes.ok) {
+          setTextStatus({
+            messageKey: "status.preloadIncomplete",
+            tone: "default",
+          })
+          preloadDoneRef.current = true
+          return
+        }
 
-        await ensureRhubarbEngine()
+        const [blob, rhubarbData] = await Promise.all([
+          audioRes.blob(),
+          mouthRes.json() as Promise<RhubarbJson>,
+        ])
         if (cancelled) return
         if (speechTextRef.current.trim() !== DEFAULT_SPEECH_TEXT) {
           preloadDoneRef.current = true
@@ -572,18 +715,41 @@ export function Previewer() {
         }
         if (preloadDoneRef.current) return
 
-        await generateSpeechRef.current({ silentFail: true })
-        // 成功或业务失败都标记完成；被取消时不标记，便于 Strict Mode 重试
-        if (!cancelled) preloadDoneRef.current = true
+        const nextCues = normalizeMouthCues(rhubarbData.mouthCues || [])
+        if (!nextCues.length) {
+          setTextStatus({
+            messageKey: "status.preloadIncomplete",
+            tone: "default",
+          })
+          preloadDoneRef.current = true
+          return
+        }
+
+        if (textAudioUrlRef.current) URL.revokeObjectURL(textAudioUrlRef.current)
+        textAudioUrlRef.current = URL.createObjectURL(blob)
+
+        setTextCues(nextCues)
+        setTextJson(rhubarbData)
+        setTextAudioBlob(blob)
+        setTextStatus({
+          messageKey: "status.generateOk",
+          tone: "ok",
+        })
+        preloadDoneRef.current = true
       } catch {
-        if (!cancelled) preloadDoneRef.current = true
+        if (!cancelled) {
+          setTextStatus({
+            messageKey: "status.preloadIncomplete",
+            tone: "default",
+          })
+          preloadDoneRef.current = true
+        }
       }
     }
 
-    void preloadDefaultSpeech()
+    void preloadPresetSpeech()
     return () => {
       cancelled = true
-      generateTokenRef.current += 1
     }
   }, [riveFile])
 
@@ -604,7 +770,8 @@ export function Previewer() {
           <PreviewStage
             canvasRef={canvasRef}
             transport={{
-              controlsReady,
+              controlsReady: canPlayPreview,
+              missingMouthData: !hasMouthData,
               isPlaying,
               seekMax,
               seekValue,
@@ -617,8 +784,18 @@ export function Previewer() {
               onPlay: () => {
                 const audio = audioRef.current
                 if (!audio) return
+                const url =
+                  mode === "generate"
+                    ? textAudioUrlRef.current
+                    : voiceAudioUrlRef.current
+                // Recover if src was lost (e.g. element remount) while cues exist.
+                if (url && !audio.getAttribute("src")) {
+                  bindAudioSrc(url)
+                }
                 if (audio.paused) {
-                  void audio.play()
+                  void audio.play().catch((error: Error) => {
+                    console.warn("[preview] audio.play failed", error)
+                  })
                 } else {
                   audio.pause()
                 }
@@ -667,6 +844,17 @@ export function Previewer() {
             analyzing={analyzing}
             onGenerate={() => void generateSpeech()}
             onAnalyzeAudio={() => void analyzePendingAudio()}
+            speechTranscript={speechTranscript}
+            onSpeechTranscript={(value) => {
+              setSpeechTranscript(value)
+              if (asrError) setAsrError(false)
+              if (asrStatus === "error") setAsrStatus("done")
+            }}
+            asrLanguage={asrLanguage}
+            onAsrLanguage={handleAsrLanguageChange}
+            asrStatus={asrStatus}
+            asrHintVisible={asrHintVisible}
+            asrError={asrError}
             textStatus={textStatus}
             voiceStatus={voiceStatus}
             canDownloadTextJson={canDownloadTextJson}
@@ -685,23 +873,33 @@ export function Previewer() {
         </div>
 
         <footer className="text-xs text-foreground/30">
-          本工具由{" "}
+          {t("footer.prefix")}{" "}
           <a
-            href="https://x.com/gnayoul"
+            href="https://xhslink.com/m/2rTR4jMrFyN"
             target="_blank"
             rel="noreferrer"
             className="underline underline-offset-2"
           >
             @gnayoul
           </a>{" "}
-          制作，嘴型数据可用于商业用途，语音仅可作为测试与学习交流，严禁商用。
+          {t("footer.suffix")}
         </footer>
       </div>
 
       <UploadRiveDialog
         open={uploadDialogOpen}
         onOpenChange={setUploadDialogOpen}
-        onRiveFile={setRiveFile}
+        onRiveFile={(file) => {
+          if (!file) {
+            // 清除自定义 → 恢复按当前音色性别切换预设
+            setCustomRiveName(null)
+            presetGenderRef.current = null
+            return
+          }
+          setRiveFile(file)
+          setCustomRiveName(file.name)
+        }}
+        riveFileName={customRiveName}
       />
     </div>
   )

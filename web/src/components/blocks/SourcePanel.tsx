@@ -1,12 +1,17 @@
-import { UploadIcon } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import {
   Field,
-  FieldDescription,
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field"
+import {
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import {
   Select,
   SelectContent,
@@ -17,11 +22,33 @@ import {
 } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { EDGE_VOICES, TTS_RATES, type StatusTone } from "@/lib/constants"
+import { UploadedFileCard, UploadEmptyCard } from "@/components/blocks/UploadedFileCard"
+import {
+  ASR_LANGUAGES,
+  EDGE_VOICES,
+  TTS_RATES,
+  type StatusTone,
+} from "@/lib/constants"
+import type {
+  AsrLanguagePreference,
+  AsrStatus,
+} from "@/lib/asr/transcribe"
+import {
+  ASR_LABEL_KEYS,
+  VOICE_LABEL_KEYS,
+  type MessageKey,
+} from "@/lib/i18n/messages"
+import { useLocale } from "@/lib/i18n/locale-context"
 import { cn } from "@/lib/utils"
+import {
+  WEIGHTED_TEXT_LIMIT,
+  clampWeightedText,
+  getWeightedLength,
+} from "@/lib/weighted-text"
 
-type TabStatus = {
-  msg: string
+export type TabStatus = {
+  messageKey: MessageKey | null
+  params?: Record<string, string | number>
   tone: StatusTone
 }
 
@@ -40,6 +67,13 @@ type SourcePanelProps = {
   analyzing: boolean
   onGenerate: () => void
   onAnalyzeAudio: () => void
+  speechTranscript: string
+  onSpeechTranscript: (value: string) => void
+  asrLanguage: AsrLanguagePreference
+  onAsrLanguage: (value: AsrLanguagePreference) => void
+  asrStatus: AsrStatus
+  asrHintVisible: boolean
+  asrError?: boolean
   textStatus: TabStatus
   voiceStatus: TabStatus
   canDownloadTextJson: boolean
@@ -51,12 +85,17 @@ type SourcePanelProps = {
 }
 
 const primaryCtaClass =
-  "h-11 w-full rounded-[16px]! bg-[#4a9830] text-white shadow-[0_4px_0_#36811c] hover:bg-[#45892c] hover:text-white active:translate-y-0.5 active:shadow-[0_2px_0_#36811c]"
+  "h-11 w-full rounded-[16px]! bg-[#4a9830] text-white shadow-[0_4px_0_#36811c] hover:bg-[#45892c] hover:text-white active:translate-y-0.5 active:shadow-[0_2px_0_#36811c] dark:hover:bg-[#549938] dark:hover:shadow-[0_4px_0_#36811c] dark:active:bg-[#45892c] dark:active:shadow-[0_2px_0_#36811c]"
 
 const controlClass =
   "h-11! w-full rounded-[16px]! border-border bg-background/50"
 
-function StatusLine({ msg, tone }: TabStatus) {
+function StatusLine({ messageKey, params, tone }: TabStatus) {
+  const { t } = useLocale()
+  const isThinking = tone === "warn"
+  if (!messageKey) return null
+  const msg = t(messageKey, params)
+
   return (
     <p
       className={cn(
@@ -64,17 +103,136 @@ function StatusLine({ msg, tone }: TabStatus) {
         tone === "ok" && "text-[#4a9830]",
         tone === "error" && "text-destructive",
         tone === "default" && "text-muted-foreground",
-        tone === "warn" && "text-amber-700",
+        isThinking && "text-muted-foreground",
       )}
     >
       <span
         className={cn(
-          "size-1.5 shrink-0 rounded-full bg-current",
+          "size-1.5 shrink-0 rounded-full",
           tone === "ok" && "bg-[#4a9830]",
+          tone === "error" && "bg-destructive",
+          tone === "default" && "bg-muted-foreground",
+          isThinking && "status-thinking-dot",
         )}
       />
-      {msg}
+      <span className={cn(isThinking && "status-thinking")}>{msg}</span>
     </p>
+  )
+}
+
+/** Distance from bottom (px) within which we treat the field as stuck to bottom. */
+const ASR_STICK_BOTTOM_PX = 12
+
+/**
+ * ASR transcript field.
+ * Native textarea cannot apply background-clip shimmer on its value text, so
+ * during loading/streaming we mirror content in an overlay with status-thinking
+ * and keep the textarea transparent + readOnly until done.
+ *
+ * Scroll lives on the textarea only; the overlay is visual (pointer-events-none,
+ * overflow-hidden) and mirrors scrollTop so generation stays scrollable.
+ */
+function AsrTranscriptField({
+  value,
+  onChange,
+  asrStatus,
+  asrHintVisible,
+  asrError,
+}: {
+  value: string
+  onChange: (value: string) => void
+  asrStatus: AsrStatus
+  asrHintVisible: boolean
+  asrError?: boolean
+}) {
+  const { t } = useLocale()
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const overlayRef = useRef<HTMLDivElement>(null)
+  const stickToBottomRef = useRef(true)
+
+  const busy = asrStatus === "loading" || asrStatus === "streaming"
+  const editable = asrStatus === "done" || asrStatus === "error"
+  const showShimmerOverlay = busy || asrHintVisible
+  const overlayText = asrHintVisible ? t("source.asrHint") : value
+  const showErrorHint = asrStatus === "error" && !value.trim() && Boolean(asrError)
+
+  const syncOverlayScroll = () => {
+    const ta = textareaRef.current
+    const overlay = overlayRef.current
+    if (!ta || !overlay) return
+    overlay.scrollTop = ta.scrollTop
+  }
+
+  const scrollToBottomIfStuck = () => {
+    const ta = textareaRef.current
+    if (!ta || !stickToBottomRef.current) return
+    ta.scrollTop = ta.scrollHeight
+    syncOverlayScroll()
+  }
+
+  // New recognition session (or audio reset → idle): re-enable stick-to-bottom.
+  useEffect(() => {
+    if (asrStatus === "loading" || asrStatus === "idle") {
+      stickToBottomRef.current = true
+    }
+  }, [asrStatus])
+
+  // While streaming/loading, keep latest text visible when stuck to bottom.
+  useEffect(() => {
+    if (!busy) return
+    scrollToBottomIfStuck()
+  }, [value, busy, showShimmerOverlay])
+
+  // After overlay mounts, align with current textarea scroll.
+  useEffect(() => {
+    if (!showShimmerOverlay) return
+    syncOverlayScroll()
+  }, [showShimmerOverlay])
+
+  const handleScroll = () => {
+    const ta = textareaRef.current
+    if (!ta) return
+    const distanceFromBottom =
+      ta.scrollHeight - ta.scrollTop - ta.clientHeight
+    stickToBottomRef.current = distanceFromBottom <= ASR_STICK_BOTTOM_PX
+    syncOverlayScroll()
+  }
+
+  return (
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      {showShimmerOverlay ? (
+        <div
+          ref={overlayRef}
+          aria-hidden
+          className="pointer-events-none absolute inset-0 z-10 overflow-hidden rounded-[16px] px-3 py-3 text-base md:text-sm"
+        >
+          <span className="status-thinking break-words whitespace-pre-wrap">
+            {overlayText}
+          </span>
+        </div>
+      ) : null}
+      <Textarea
+        ref={textareaRef}
+        id="asrText"
+        readOnly={!editable || busy}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onScroll={handleScroll}
+        placeholder={
+          showErrorHint
+            ? t("status.asrFail")
+            : asrStatus === "idle"
+              ? t("source.asrPlaceholder")
+              : undefined
+        }
+        className={cn(
+          "app-scrollbar min-h-0 flex-1 field-sizing-fixed resize-none rounded-[16px] border-border bg-background/50 placeholder:text-muted-foreground",
+          showShimmerOverlay &&
+            "text-transparent caret-transparent placeholder:text-transparent",
+          showErrorHint && "placeholder:text-destructive",
+        )}
+      />
+    </div>
   )
 }
 
@@ -94,6 +252,13 @@ export function SourcePanel({
   analyzing,
   onGenerate,
   onAnalyzeAudio,
+  speechTranscript,
+  onSpeechTranscript,
+  asrLanguage,
+  onAsrLanguage,
+  asrStatus,
+  asrHintVisible,
+  asrError,
   textStatus,
   voiceStatus,
   canDownloadTextJson,
@@ -103,13 +268,30 @@ export function SourcePanel({
   onDownloadTextAudio,
   onDownloadVoiceJson,
 }: SourcePanelProps) {
+  const { t } = useLocale()
+  const asrBusy = asrStatus === "loading" || asrStatus === "streaming"
   const rateValue = String(rate)
   const showTextDownloads = canDownloadTextAudio || canDownloadTextJson
+  const showTextStatus = Boolean(textStatus.messageKey)
+  const showVoiceStatus = Boolean(voiceStatus.messageKey)
+  const showTextFooter = showTextStatus || showTextDownloads
+  const showVoiceFooter = showVoiceStatus || canDownloadVoiceJson
+  const audioInputRef = useRef<HTMLInputElement>(null)
+  const [audioDownloadOpen, setAudioDownloadOpen] = useState(false)
+
+  const voiceItems = EDGE_VOICES.map((item) => ({
+    value: item.value,
+    label: t(VOICE_LABEL_KEYS[item.value] ?? "voice.enMale"),
+  }))
+  const asrItems = ASR_LANGUAGES.map((item) => ({
+    value: item.value,
+    label: t(ASR_LABEL_KEYS[item.value] ?? "asr.auto"),
+  }))
 
   return (
     <section
-      aria-label="素材来源"
-      className="flex h-full min-h-[633px] flex-col gap-6 overflow-hidden rounded-[24px] bg-[#f1f1f1] py-6"
+      aria-label={t("source.aria")}
+      className="flex h-full min-h-[633px] flex-col gap-6 overflow-hidden rounded-[24px] bg-muted py-6"
     >
       <Tabs
         value={mode}
@@ -119,18 +301,18 @@ export function SourcePanel({
         className="flex min-h-0 flex-1 flex-col gap-6"
       >
         <div className="flex justify-center px-4">
-          <TabsList className="box-border h-11! w-[222px] items-stretch rounded-[16px]! bg-border p-[2px]!">
+          <TabsList className="box-border inline-grid h-11! grid-flow-col auto-cols-fr items-stretch rounded-[16px]! bg-border p-[2px]!">
             <TabsTrigger
               value="generate"
-              className="h-full! min-h-0 rounded-[14px]! text-sm data-active:bg-background/50 data-active:shadow-none"
+              className="h-full! min-h-0 w-full justify-center rounded-[14px]! px-4 text-sm data-active:bg-background/50 data-active:shadow-none"
             >
-              文本识别
+              {t("source.tabText")}
             </TabsTrigger>
             <TabsTrigger
               value="upload"
-              className="h-full! min-h-0 rounded-[14px]! text-sm data-active:bg-background/50 data-active:shadow-none"
+              className="h-full! min-h-0 w-full justify-center rounded-[14px]! px-4 text-sm data-active:bg-background/50 data-active:shadow-none"
             >
-              声音识别
+              {t("source.tabVoice")}
             </TabsTrigger>
           </TabsList>
         </div>
@@ -141,35 +323,46 @@ export function SourcePanel({
             className="mt-0 flex min-h-0 flex-1 flex-col"
           >
             <FieldGroup className="flex min-h-0 flex-1 flex-col gap-4">
-              <Field className="min-h-0 flex-1 gap-1.5">
-                <FieldLabel htmlFor="speechText">请输入你想同步的内容</FieldLabel>
-                <FieldDescription className="text-xs text-foreground/30">
-                  支持英文/中文/日文，英文表现更佳
-                </FieldDescription>
+              <Field className="flex min-h-0 flex-1 flex-col gap-1.5">
+                <div className="flex shrink-0 items-center justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <FieldLabel htmlFor="speechText" className="shrink-0">
+                      {t("source.inputLabel")}
+                    </FieldLabel>
+                    <span className="text-xs text-foreground/30">
+                      {t("source.langHint")}
+                    </span>
+                  </div>
+                  <span className="shrink-0 text-xs text-foreground/30">
+                    {getWeightedLength(speechText)}/{WEIGHTED_TEXT_LIMIT}
+                  </span>
+                </div>
                 <Textarea
                   id="speechText"
-                  rows={6}
                   value={speechText}
-                  onChange={(event) => onSpeechText(event.target.value)}
-                  placeholder="请输入"
-                  className="min-h-[120px] flex-1 rounded-[16px] border-border bg-background/50"
+                  onChange={(event) =>
+                    onSpeechText(clampWeightedText(event.target.value))
+                  }
+                  placeholder={t("source.placeholder")}
+                  className="app-scrollbar min-h-0 flex-1 field-sizing-fixed resize-none rounded-[16px] border-border bg-background/50 placeholder:text-muted-foreground"
                 />
               </Field>
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field className="gap-1.5">
-                  <FieldLabel>音色</FieldLabel>
+                  <FieldLabel>{t("source.voiceLabel")}</FieldLabel>
                   <Select
                     value={voice}
                     onValueChange={(value) => value && onVoice(value)}
+                    items={voiceItems}
                   >
                     <SelectTrigger className={controlClass}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
-                        {EDGE_VOICES.map((item) => (
-                          <SelectItem key={item.id} value={item.id}>
+                        {voiceItems.map((item) => (
+                          <SelectItem key={item.value} value={item.value}>
                             {item.label}
                           </SelectItem>
                         ))}
@@ -178,7 +371,7 @@ export function SourcePanel({
                   </Select>
                 </Field>
                 <Field className="gap-1.5">
-                  <FieldLabel>声音倍速</FieldLabel>
+                  <FieldLabel>{t("source.rateLabel")}</FieldLabel>
                   <Select
                     value={rateValue}
                     onValueChange={(value) => {
@@ -208,33 +401,65 @@ export function SourcePanel({
                 disabled={generating || !speechText.trim()}
                 onClick={onGenerate}
               >
-                {generating ? "生成中…" : "生成语音与嘴型数据"}
+                {generating ? t("source.generating") : t("source.generate")}
               </Button>
             </FieldGroup>
 
-            <div className="mt-6 flex flex-col gap-3 border-t border-border pt-6">
-              <StatusLine {...textStatus} />
-              {showTextDownloads ? (
-                <div className="grid grid-cols-2 gap-2.5">
-                  <Button
-                    variant="outline"
-                    className="h-11 rounded-[16px]! border-border bg-background/50"
-                    disabled={!canDownloadTextAudio}
-                    onClick={onDownloadTextAudio}
-                  >
-                    下载语音
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="h-11 rounded-[16px]! border-border bg-background/50"
-                    disabled={!canDownloadTextJson}
-                    onClick={onDownloadTextJson}
-                  >
-                    下载嘴型数据
-                  </Button>
-                </div>
-              ) : null}
-            </div>
+            {showTextFooter ? (
+              <div className="mt-6 flex flex-col gap-3 border-t border-border pt-6">
+                {showTextStatus ? <StatusLine {...textStatus} /> : null}
+                {showTextDownloads ? (
+                  <div className="grid grid-cols-2 gap-4">
+                    <Popover
+                      open={audioDownloadOpen}
+                      onOpenChange={setAudioDownloadOpen}
+                    >
+                      <PopoverTrigger
+                        render={
+                          <Button
+                            variant="outline"
+                            className="h-11 rounded-[16px]! border-border bg-background/50"
+                            disabled={!canDownloadTextAudio}
+                          />
+                        }
+                      >
+                        {t("source.downloadAudio")}
+                      </PopoverTrigger>
+                      <PopoverContent
+                        side="top"
+                        align="start"
+                        sideOffset={8}
+                        className="w-[260px] gap-3 rounded-[16px] bg-background p-4 shadow-md"
+                      >
+                        <PopoverDescription className="text-sm text-foreground">
+                          {t("source.downloadAudioDisclaimer")}
+                        </PopoverDescription>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 rounded-[16px]! border-border bg-background"
+                          onClick={() => {
+                            setAudioDownloadOpen(false)
+                            onDownloadTextAudio()
+                          }}
+                        >
+                          {t("source.downloadAudioConfirm")}
+                        </Button>
+                      </PopoverContent>
+                    </Popover>
+                    <Button
+                      variant="outline"
+                      className="h-11 rounded-[16px]! border-border bg-background/50"
+                      disabled={!canDownloadTextJson}
+                      onClick={onDownloadTextJson}
+                    >
+                      {t("source.downloadJson")}
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </TabsContent>
 
           <TabsContent
@@ -242,69 +467,113 @@ export function SourcePanel({
             className="mt-0 flex min-h-0 flex-1 flex-col"
           >
             <FieldGroup className="flex min-h-0 flex-1 flex-col gap-4">
-              <Field className="min-h-0 flex-1 gap-1.5">
-                <FieldLabel htmlFor="audioFile">
-                  上传语音
-                  <span className="font-medium text-foreground/30">
-                    （支持英文/中文/日文，英文表现佳）
+              <Field className="shrink-0 gap-1.5">
+                <div className="flex shrink-0 items-center gap-2">
+                  <FieldLabel htmlFor="audioFile" className="shrink-0">
+                    {t("source.uploadAudio")}
+                  </FieldLabel>
+                  <span className="text-xs text-foreground/30">
+                    {t("source.langHint")}
                   </span>
-                </FieldLabel>
-                <label
-                  htmlFor="audioFile"
-                  className="flex min-h-[96px] flex-1 cursor-pointer flex-col items-center justify-center gap-3 rounded-[16px] border border-dashed border-border bg-background/50 px-3 py-4 text-center transition-colors hover:bg-background"
-                >
-                  <UploadIcon className="size-6 text-foreground" />
-                  <span className="text-xs text-foreground">
-                    {audioFileName
-                      ? audioFileName
-                      : "点击或拖拽上传你的音频文件（仅支持.wav/.ogg/.mp3）"}
-                  </span>
-                  <input
-                    id="audioFile"
-                    type="file"
-                    accept=".wav,.ogg,.mp3,audio/wav,audio/ogg,audio/mpeg"
-                    className="sr-only"
-                    onChange={(event) => {
-                      onAudioFile(event.target.files?.[0] ?? null)
-                      event.target.value = ""
-                    }}
+                </div>
+                <input
+                  ref={audioInputRef}
+                  id="audioFile"
+                  type="file"
+                  accept=".wav,.ogg,.mp3,audio/wav,audio/ogg,audio/mpeg"
+                  className="sr-only"
+                  onChange={(event) => {
+                    onAudioFile(event.target.files?.[0] ?? null)
+                    event.target.value = ""
+                  }}
+                />
+                {audioFileName ? (
+                  <UploadedFileCard
+                    fileName={audioFileName}
+                    onReplace={() => audioInputRef.current?.click()}
+                    onClear={() => onAudioFile(null)}
                   />
-                </label>
+                ) : (
+                  <UploadEmptyCard
+                    htmlFor="audioFile"
+                    title={t("source.uploadAudioTitle")}
+                    description={t("source.uploadAudioDesc")}
+                  />
+                )}
               </Field>
 
-              <Field className="min-h-0 flex-1 gap-1.5">
-                <FieldLabel htmlFor="asrText">语音字幕生成</FieldLabel>
-                <Textarea
-                  id="asrText"
-                  rows={4}
-                  readOnly
-                  value=""
-                  placeholder="语音识别成功后，将在此处自动生成文本内容"
-                  className="min-h-[96px] flex-1 rounded-[16px] border-border bg-background/50 placeholder:text-[#aaa]"
+              <Field className="flex min-h-0 flex-1 flex-col gap-1.5">
+                <div className="flex w-full items-center justify-between gap-3">
+                  <FieldLabel htmlFor="asrText" className="shrink-0">
+                    {t("source.asrLabel")}
+                  </FieldLabel>
+                  <Select
+                    value={asrLanguage}
+                    disabled={asrBusy}
+                    onValueChange={(value) => {
+                      if (
+                        value === "auto" ||
+                        value === "chinese" ||
+                        value === "english"
+                      ) {
+                        onAsrLanguage(value)
+                      }
+                    }}
+                    items={asrItems}
+                  >
+                    <SelectTrigger
+                      size="sm"
+                      aria-label={t("source.asrLangAria")}
+                      className="h-auto shrink-0 gap-1 border-0 bg-transparent p-0 px-0 text-xs shadow-none hover:bg-transparent focus-visible:border-transparent focus-visible:ring-0 data-[size=sm]:h-auto"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent
+                      align="end"
+                      className="w-auto min-w-(--anchor-width)"
+                    >
+                      <SelectGroup>
+                        {asrItems.map((item) => (
+                          <SelectItem key={item.value} value={item.value}>
+                            {item.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <AsrTranscriptField
+                  value={speechTranscript}
+                  onChange={onSpeechTranscript}
+                  asrStatus={asrStatus}
+                  asrHintVisible={asrHintVisible}
+                  asrError={asrError}
                 />
               </Field>
 
               <Button
-                className={primaryCtaClass}
+                className={cn(primaryCtaClass, "shrink-0")}
                 disabled={analyzing || !audioFileName}
                 onClick={onAnalyzeAudio}
               >
-                {analyzing ? "生成中…" : "生成嘴型数据"}
+                {analyzing ? t("source.generating") : t("source.analyze")}
               </Button>
             </FieldGroup>
 
-            <div className="mt-6 flex flex-col gap-3 border-t border-border pt-6">
-              <StatusLine {...voiceStatus} />
-              {canDownloadVoiceJson ? (
-                <Button
-                  variant="outline"
-                  className="h-11 w-full rounded-[16px]! border-border bg-background/50"
-                  onClick={onDownloadVoiceJson}
-                >
-                  下载嘴型数据
-                </Button>
-              ) : null}
-            </div>
+            {showVoiceFooter ? (
+              <div className="mt-6 flex flex-col gap-3 border-t border-border pt-6">
+                {showVoiceStatus ? <StatusLine {...voiceStatus} /> : null}
+                {canDownloadVoiceJson ? (
+                  <Button
+                    variant="outline"
+                    className="h-11 w-full rounded-[16px]! border-border bg-background/50"
+                    onClick={onDownloadVoiceJson}
+                  >
+                    {t("source.downloadJson")}
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
           </TabsContent>
         </div>
       </Tabs>

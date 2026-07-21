@@ -1,29 +1,71 @@
+/** 预设动画按音色性别切换：男（含男童）→ boy，女（含女童）→ girl */
+export type VoiceGender = "male" | "female"
+
+/**
+ * Edge TTS 可选音色（与 Azure Voice Gallery 选型对应）。
+ * 注：Yunyi Dragon / Brandon / Amber / 晓双 等 HD 或较新音色在 Edge 端不可用，
+ * 已换成同气质、可合成的最接近 ShortName。
+ */
 export const EDGE_VOICES = [
-  { id: "zh-CN-XiaoxiaoNeural", label: "晓晓（女声，中文）" },
-  { id: "zh-CN-YunxiNeural", label: "云希（男声，中文）" },
-  { id: "zh-CN-XiaoyiNeural", label: "晓伊（女声，中文）" },
-  { id: "zh-CN-YunyangNeural", label: "云扬（男声，新闻）" },
-  { id: "zh-TW-HsiaoChenNeural", label: "晓臻（女声，繁体）" },
-  { id: "en-US-JennyNeural", label: "Jenny（女声，英文）" },
-  { id: "en-US-GuyNeural", label: "Guy（男声，英文）" },
-  { id: "ja-JP-NanamiNeural", label: "Nanami（女声，日文）" },
+  // 英文优先 → 中英成人 → 中英儿童；同组内男先于女
+  { value: "en-US-GuyNeural", label: "英文，男性", gender: "male" }, // Brandon 近似
+  { value: "en-US-AriaNeural", label: "英文，女性", gender: "female" }, // Amber 近似
+  { value: "zh-CN-YunxiNeural", label: "中英，男性", gender: "male" },
+  { value: "zh-CN-XiaoxiaoNeural", label: "中英，女性", gender: "female" },
+  { value: "zh-CN-YunxiaNeural", label: "中英，男童", gender: "male" },
+  { value: "zh-CN-XiaoyiNeural", label: "中英，女童", gender: "female" }, // 晓双 近似
 ] as const
 
 export const TTS_RATES = [
+  { value: "0.5", label: "0.5x" },
   { value: "0.75", label: "0.75x" },
   { value: "1", label: "1x" },
   { value: "1.25", label: "1.25x" },
   { value: "1.5", label: "1.5x" },
+  { value: "1.75", label: "1.75x" },
+  { value: "2", label: "2x" },
 ] as const
 
-export const DEFAULT_RIVE_URL = "/boy.riv"
+/** bump 以迫使浏览器绕过对 .riv 的强缓存 */
+const RIVE_ASSET_VERSION = "20260721-1733"
 
-/** 文本识别默认台词（预加载语音与嘴型） */
+export const BOY_RIVE_URL = `/boy.riv?v=${RIVE_ASSET_VERSION}`
+export const GIRL_RIVE_URL = `/girl.riv?v=${RIVE_ASSET_VERSION}`
+/** 默认音色为男童 → boy */
+export const DEFAULT_RIVE_URL = BOY_RIVE_URL
+
+export function genderForVoice(voiceValue: string): VoiceGender {
+  const found = EDGE_VOICES.find((item) => item.value === voiceValue)
+  return found?.gender ?? "male"
+}
+
+export function riveUrlForGender(gender: VoiceGender): string {
+  return gender === "female" ? GIRL_RIVE_URL : BOY_RIVE_URL
+}
+
+export function riveFileNameForGender(gender: VoiceGender): string {
+  return gender === "female" ? "girl.riv" : "boy.riv"
+}
+
+/** 文本 Tab 默认台词（与预置 speech/mouth 对齐） */
 export const DEFAULT_SPEECH_TEXT =
-  "Hi, I'm Rive Lipsyncer. Nice to meet you!"
+  "Hello, I am a talking animated character. Nice to meet you!"
 
-/** 默认英文句对应英文声线 */
-export const DEFAULT_VOICE = "en-US-GuyNeural"
+/** 首次体验预置：静态音频 + Rhubarb 嘴型 JSON（无需启动时 TTS） */
+export const PRESET_SPEECH_URL = "/preset/speech.mp3"
+export const PRESET_MOUTH_URL = "/preset/mouth.json"
+
+/** 默认音色：中英，男童 */
+export const DEFAULT_VOICE = "zh-CN-YunxiaNeural"
+
+/** Whisper ASR language preference on the 声音识别 tab. */
+export const ASR_LANGUAGES = [
+  { value: "auto", label: "自动识别语种" },
+  { value: "chinese", label: "中文" },
+  { value: "english", label: "英文" },
+] as const
+
+export const DEFAULT_ASR_LANGUAGE = "auto" as const
 
 /** 嘴型时间偏移步进（秒）；UI 以 ms 展示 */
 export const OFFSET_STEP_SEC = 0.05

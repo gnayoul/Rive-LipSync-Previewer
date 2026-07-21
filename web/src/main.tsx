@@ -1,10 +1,20 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import './index.css'
-import App from './App.tsx'
+import { StrictMode } from "react"
+import { createRoot } from "react-dom/client"
 
-createRoot(document.getElementById('root')!).render(
+import App from "./App.tsx"
+import { TooltipProvider } from "@/components/ui/tooltip"
+import { LocaleProvider } from "@/lib/i18n/locale-context"
+import { ThemeProvider } from "@/lib/theme/theme-context"
+import "./index.css"
+
+createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    <ThemeProvider>
+      <LocaleProvider>
+        <TooltipProvider>
+          <App />
+        </TooltipProvider>
+      </LocaleProvider>
+    </ThemeProvider>
   </StrictMode>,
 )
