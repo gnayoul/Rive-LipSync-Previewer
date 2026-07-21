@@ -27,10 +27,13 @@ export const TTS_RATES = [
 ] as const
 
 /** bump 以迫使浏览器绕过对 .riv 的强缓存 */
-const RIVE_ASSET_VERSION = "20260721-1733"
+const RIVE_ASSET_VERSION = "20260721-2304"
+/** bump 当 web/public/brand/logo.riv 更新时 */
+const LOGO_RIVE_VERSION = "20260721-2316"
 
 export const BOY_RIVE_URL = `/boy.riv?v=${RIVE_ASSET_VERSION}`
 export const GIRL_RIVE_URL = `/girl.riv?v=${RIVE_ASSET_VERSION}`
+export const LOGO_RIVE_URL = `/brand/logo.riv?v=${LOGO_RIVE_VERSION}`
 /** 默认音色为男童 → boy */
 export const DEFAULT_RIVE_URL = BOY_RIVE_URL
 

@@ -5,6 +5,72 @@
     <link rel="icon" type="image/png" href="/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Rive 嘴型同步预览器</title>
+    <link
+      rel="preload"
+      as="image"
+      href="/brand/logo-light.svg?v=20260721t2350"
+    />
+    <link
+      rel="preload"
+      as="image"
+      href="/brand/logo-dark.svg?v=20260721t2350"
+    />
+    <style>
+      html,
+      body,
+      #root {
+        min-height: 100%;
+        margin: 0;
+        background: #fff;
+      }
+
+      html.dark,
+      html.dark body,
+      html.dark #root {
+        background: oklch(0.145 0 0);
+      }
+
+      #reload-splash {
+        position: absolute;
+        z-index: 2147483647;
+        top: 20px;
+        left: max(16px, calc((100vw - 1240px) / 2 + 16px));
+        width: 160px;
+        height: 64px;
+        pointer-events: none;
+        background: transparent;
+      }
+
+      #reload-splash img {
+        position: absolute;
+        inset: 0;
+        width: 160px;
+        height: 64px;
+      }
+
+      #reload-splash .logo-dark {
+        display: none;
+      }
+
+      html.dark #reload-splash .logo-light {
+        display: none;
+      }
+
+      html.dark #reload-splash .logo-dark {
+        display: block;
+      }
+
+      @media (min-width: 768px) {
+        #reload-splash {
+          top: 24px;
+          left: max(24px, calc((100vw - 1240px) / 2 + 24px));
+        }
+      }
+
+      @view-transition {
+        navigation: auto;
+      }
+    </style>
     <script>
       try {
         if (localStorage.getItem("theme") === "dark") {
@@ -18,6 +84,22 @@
     </script>
   </head>
   <body>
+    <div id="reload-splash" aria-hidden="true">
+      <img
+        class="logo-light"
+        src="/brand/logo-light.svg?v=20260721t2350"
+        width="160"
+        height="64"
+        alt=""
+      />
+      <img
+        class="logo-dark"
+        src="/brand/logo-dark.svg?v=20260721t2350"
+        width="160"
+        height="64"
+        alt=""
+      />
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

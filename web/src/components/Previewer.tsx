@@ -39,7 +39,11 @@ import {
   ERR_TTS_NO_AUDIO,
 } from "@/lib/previewer"
 import { analyzeWithRhubarb, ensureRhubarbEngine } from "@/lib/rhubarb"
-import { getFit, loadRiveRuntime } from "@/lib/rive-loader"
+import {
+  getFit,
+  loadRiveRuntime,
+  waitForRiveReveal,
+} from "@/lib/rive-loader"
 import {
   WEIGHTED_TEXT_LIMIT,
   getWeightedLength,
@@ -200,11 +204,16 @@ export function Previewer() {
     stopTick()
     riveRef.current.mouthInput = null
     riveRef.current.mouthViewModelNumber = null
+    // 盖回同色遮罩再 cleanup。切勿对 canvas getContext("2d")——会锁死 WebGL2。
+    setControlsReady(false)
     if (riveRef.current.instance) {
-      riveRef.current.instance.cleanup?.()
+      try {
+        riveRef.current.instance.cleanup?.()
+      } catch {
+        /* ignore */
+      }
       riveRef.current.instance = null
     }
-    setControlsReady(false)
   }, [stopTick])
 
   useEffect(() => {
@@ -488,6 +497,13 @@ export function Previewer() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (rive: any, buffer: ArrayBuffer, requestedMachine: string, isAutoReload: boolean) => {
       if (!canvasRef.current) return
+      // 新建实例前保持遮罩。防闪只靠 CSS bg-muted + 遮罩层，禁止 2D clearRect。
+      setControlsReady(false)
+      // onLoad 若永久不来，2s 后强制揭开，避免灰底死锁
+      const revealFallback = window.setTimeout(() => {
+        if (riveRef.current.instance) setControlsReady(true)
+      }, 2000)
+
       const selectedFit = getFit(rive, settings.fit)
       riveRef.current.instance = new rive.Rive({
         buffer: buffer.slice(0),
@@ -502,23 +518,46 @@ export function Previewer() {
         }),
         onLoad: () => {
           const instance = riveRef.current.instance
-          instance?.resizeDrawingSurfaceToCanvas?.()
+          try {
+            instance?.resizeDrawingSurfaceToCanvas?.()
+          } catch {
+            /* ignore */
+          }
           const names: string[] = instance?.stateMachineNames || []
 
           if (!requestedMachine && names[0] && !isAutoReload) {
             const first = names[0]
             setSettings((prev) => ({ ...prev, stateMachine: first }))
-            instance?.cleanup?.()
+            setControlsReady(false)
+            try {
+              instance?.cleanup?.()
+            } catch {
+              /* ignore */
+            }
             riveRef.current.instance = null
+            window.clearTimeout(revealFallback)
             createRiveInstance(rive, buffer, first, true)
             return
           }
 
-          prepareControls(instance)
-          setControlsReady(true)
+          try {
+            prepareControls(instance)
+          } catch (err) {
+            console.warn("[preview] prepareControls failed:", err)
+          }
+
+          // 短等绘帧后揭开；超时强制揭开，避免遮罩永久盖死
+          void waitForRiveReveal(2).then(() => {
+            window.clearTimeout(revealFallback)
+            if (riveRef.current.instance !== instance) return
+            setControlsReady(true)
+          })
         },
-        onLoadError: () => {
-          setControlsReady(false)
+        onLoadError: (err: unknown) => {
+          console.error("[preview] Rive load error:", err)
+          window.clearTimeout(revealFallback)
+          // 失败也揭开遮罩，至少不要永久灰底
+          setControlsReady(true)
         },
       })
     },
@@ -532,8 +571,10 @@ export function Previewer() {
       const rive = await loadRiveRuntime()
       const buffer = await riveFile.arrayBuffer()
       createRiveInstance(rive, buffer, settings.stateMachine.trim(), false)
-    } catch {
-      setControlsReady(false)
+    } catch (err) {
+      console.error("[preview] loadPreview failed:", err)
+      // 加载失败也揭开，避免永久灰遮罩
+      setControlsReady(true)
     }
   }, [createRiveInstance, destroyRive, riveFile, settings.stateMachine])
 
@@ -769,6 +810,7 @@ export function Previewer() {
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(280px,420px)]">
           <PreviewStage
             canvasRef={canvasRef}
+            canvasReady={controlsReady}
             transport={{
               controlsReady: canPlayPreview,
               missingMouthData: !hasMouthData,

@@ -1,6 +1,9 @@
 const RIVE_JS_URL = "/vendor/rive/rive.js"
 const RIVE_WASM_URL = "/vendor/rive/rive.wasm"
 
+/** 遮罩揭开失败时的硬超时，避免 ready 永远 false */
+export const RIVE_REVEAL_TIMEOUT_MS = 2000
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let riveRuntimePromise: Promise<any> | null = null
 
@@ -49,4 +52,44 @@ export function getFit(rive: any, value: string) {
     fitHeight: rive.Fit.FitHeight,
   }
   return map[value] || rive.Fit.Contain
+}
+
+/**
+ * 等 N 帧 rAF，再揭开遮罩（减轻首帧空缓冲闪一下）。
+ * 切勿在此期间对 Rive canvas 调用 getContext("2d")——本站用 @rive-app/webgl2，
+ * 一旦拿到 2D context 会永久锁死，WebGL 再也建不起来。
+ */
+export function waitForRivePaint(frames = 2): Promise<void> {
+  return new Promise((resolve) => {
+    let left = Math.max(1, frames)
+    const tick = () => {
+      left -= 1
+      if (left <= 0) {
+        resolve()
+        return
+      }
+      requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  })
+}
+
+/**
+ * 短等绘帧 + 硬超时；任一先到就 resolve。
+ * 保证遮罩不会因 onLoad/绘帧异常而永久盖住。
+ */
+export function waitForRiveReveal(
+  frames = 2,
+  timeoutMs = RIVE_REVEAL_TIMEOUT_MS,
+): Promise<void> {
+  return new Promise((resolve) => {
+    let settled = false
+    const done = () => {
+      if (settled) return
+      settled = true
+      resolve()
+    }
+    void waitForRivePaint(frames).then(done)
+    window.setTimeout(done, Math.max(0, timeoutMs))
+  })
 }

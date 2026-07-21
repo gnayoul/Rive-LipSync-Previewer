@@ -33,13 +33,15 @@ function run(command, args, cwd) {
   delete env.npm_config_production;
   if (env.NODE_ENV === "production") delete env.NODE_ENV;
 
+  // Windows: spawnSync('npm.cmd', …, { shell: false }) yields EINVAL on some Node builds.
+  const useShell = process.platform === "win32";
   const npmCmd =
-    command === "npm" && process.platform === "win32" ? "npm.cmd" : command;
+    command === "npm" && useShell ? "npm.cmd" : command;
   const result = spawnSync(npmCmd, args, {
     cwd,
     stdio: "inherit",
     env,
-    shell: false,
+    shell: useShell,
   });
   if (result.status !== 0) {
     process.exit(result.status ?? 1);

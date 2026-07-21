@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { GlobeIcon, MoonIcon, SunIcon } from "lucide-react"
 
+import { BrandLogo } from "@/components/blocks/BrandLogo"
 import { Button } from "@/components/ui/button"
 import { useLocale } from "@/lib/i18n/locale-context"
 import { useTheme } from "@/lib/theme/theme-context"
@@ -19,20 +20,7 @@ export function AppHeader() {
   return (
     <header className="flex items-center justify-between gap-4 py-5 md:py-6">
       <a href="/" className="inline-flex items-center" aria-label="Rive LipSync">
-        <img
-          src="/brand/logo.png"
-          alt=""
-          className="h-16 w-auto object-contain object-left dark:hidden"
-          width={320}
-          height={128}
-        />
-        <img
-          src="/brand/logo-dark.png"
-          alt=""
-          className="hidden h-16 w-auto object-contain object-left dark:block"
-          width={320}
-          height={128}
-        />
+        <BrandLogo theme={theme} />
       </a>
 
       <div className="flex items-center gap-1 sm:gap-2">
