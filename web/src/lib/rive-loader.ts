@@ -1,5 +1,7 @@
-const RIVE_JS_URL = "/vendor/rive/rive.js"
-const RIVE_WASM_URL = "/vendor/rive/rive.wasm"
+import { appUrl } from "@/lib/app-url"
+
+const RIVE_JS_URL = appUrl("vendor/rive/rive.js")
+const RIVE_WASM_URL = appUrl("vendor/rive/rive.wasm")
 
 /** 遮罩揭开失败时的硬超时，避免 ready 永远 false */
 export const RIVE_REVEAL_TIMEOUT_MS = 2000

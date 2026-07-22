@@ -24,6 +24,7 @@ const DOUBLE_UNIT =
 const DIST_ROOT = path.resolve(__dirname, "web", "dist");
 const DIST_INDEX = path.join(DIST_ROOT, "index.html");
 const VENDOR_ROOT = path.resolve(__dirname, "vendor");
+const APP_BASE_PATH = "/rive-lipsync";
 let distIndexReady = false;
 
 const MIME_TYPES = {
@@ -60,10 +61,11 @@ const server = http.createServer(async (req, res) => {
     }
 
     const url = new URL(req.url, `http://${req.headers.host}`);
+    const pathname = stripAppBasePath(url.pathname);
 
     if (
       (req.method === "GET" || req.method === "HEAD") &&
-      url.pathname === "/api/health"
+      pathname === "/api/health"
     ) {
       sendJson(
         res,
@@ -79,13 +81,13 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (req.method === "POST" && url.pathname === "/api/tts/edge") {
+    if (req.method === "POST" && pathname === "/api/tts/edge") {
       await handleEdgeTTS(req, res);
       return;
     }
 
     if (req.method === "GET") {
-      await serveStatic(req, res, url.pathname);
+      await serveStatic(req, res, pathname);
       return;
     }
 
@@ -334,6 +336,14 @@ async function assertDistReady() {
     );
     process.exit(1);
   }
+}
+
+function stripAppBasePath(pathname) {
+  if (pathname === APP_BASE_PATH) return "/";
+  if (pathname.startsWith(`${APP_BASE_PATH}/`)) {
+    return pathname.slice(APP_BASE_PATH.length) || "/";
+  }
+  return pathname;
 }
 
 async function serveStatic(req, res, pathname) {

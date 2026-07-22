@@ -1,3 +1,4 @@
+import { APP_HOME_URL } from "@/lib/app-url"
 import type { MouthCue, RhubarbJson } from "@/lib/constants"
 import type { MessageKey } from "@/lib/i18n/messages"
 import { WEIGHTED_TEXT_LIMIT } from "@/lib/weighted-text"
@@ -25,7 +26,9 @@ export type StatusMessageSpec = {
 
 export function getServerBaseUrl() {
   if (window.location.protocol.startsWith("http")) {
-    return window.location.origin
+    return new URL(APP_HOME_URL, window.location.origin)
+      .toString()
+      .replace(/\/$/, "")
   }
   return "http://localhost:3921"
 }

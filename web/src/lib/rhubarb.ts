@@ -1,6 +1,8 @@
-const LIP_SYNC_ENGINE_URL = "/vendor/lip-sync-engine/index.mjs"
-const LIP_SYNC_WORKER_URL = "/vendor/lip-sync-engine/worker.js"
-const LIP_SYNC_WASM_BASE = "/vendor/lip-sync-engine/wasm"
+import { appUrl } from "@/lib/app-url"
+
+const LIP_SYNC_ENGINE_URL = appUrl("vendor/lip-sync-engine/index.mjs")
+const LIP_SYNC_WORKER_URL = appUrl("vendor/lip-sync-engine/worker.js")
+const LIP_SYNC_WASM_BASE = appUrl("vendor/lip-sync-engine/wasm")
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let lipSyncModulePromise: Promise<any> | null = null

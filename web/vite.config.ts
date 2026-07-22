@@ -11,6 +11,7 @@ const dirname =
     : path.dirname(fileURLToPath(import.meta.url))
 
 export default defineConfig({
+  base: "/rive-lipsync/",
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
@@ -29,13 +30,15 @@ export default defineConfig({
     // SharedArrayBuffer, but breaks Vite HMR + Rive CDN scripts in this app.
     // ASR falls back to single-thread WASM when SAB is unavailable.
     proxy: {
-      "/api": {
+      "/rive-lipsync/api": {
         target: "http://127.0.0.1:3921",
         changeOrigin: true,
+        rewrite: (requestPath) => requestPath.replace(/^\/rive-lipsync/, ""),
       },
-      "/vendor": {
+      "/rive-lipsync/vendor": {
         target: "http://127.0.0.1:3921",
         changeOrigin: true,
+        rewrite: (requestPath) => requestPath.replace(/^\/rive-lipsync/, ""),
       },
     },
   },

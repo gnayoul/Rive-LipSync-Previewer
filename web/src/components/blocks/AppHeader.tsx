@@ -3,6 +3,7 @@ import { GlobeIcon, MoonIcon, SunIcon } from "lucide-react"
 
 import { BrandLogo } from "@/components/blocks/BrandLogo"
 import { Button } from "@/components/ui/button"
+import { APP_HOME_URL } from "@/lib/app-url"
 import { useLocale } from "@/lib/i18n/locale-context"
 import { useTheme } from "@/lib/theme/theme-context"
 import { isRestrictedPreviewBrowser } from "@/lib/asr/env"
@@ -19,7 +20,11 @@ export function AppHeader() {
 
   return (
     <header className="flex items-center justify-between gap-4 py-5 md:py-6">
-      <a href="/" className="inline-flex items-center" aria-label="Rive LipSync">
+      <a
+        href={APP_HOME_URL}
+        className="inline-flex items-center"
+        aria-label="Rive LipSync"
+      >
         <BrandLogo theme={theme} />
       </a>
 

@@ -1,3 +1,5 @@
+import { appUrl } from "@/lib/app-url"
+
 /** 预设动画按音色性别切换：男（含男童）→ boy，女（含女童）→ girl */
 export type VoiceGender = "male" | "female"
 
@@ -31,9 +33,9 @@ const RIVE_ASSET_VERSION = "20260721-2304"
 /** bump 当 web/public/brand/logo.riv 更新时 */
 const LOGO_RIVE_VERSION = "20260721-2316"
 
-export const BOY_RIVE_URL = `/boy.riv?v=${RIVE_ASSET_VERSION}`
-export const GIRL_RIVE_URL = `/girl.riv?v=${RIVE_ASSET_VERSION}`
-export const LOGO_RIVE_URL = `/brand/logo.riv?v=${LOGO_RIVE_VERSION}`
+export const BOY_RIVE_URL = appUrl(`boy.riv?v=${RIVE_ASSET_VERSION}`)
+export const GIRL_RIVE_URL = appUrl(`girl.riv?v=${RIVE_ASSET_VERSION}`)
+export const LOGO_RIVE_URL = appUrl(`brand/logo.riv?v=${LOGO_RIVE_VERSION}`)
 /** 默认音色为男童 → boy */
 export const DEFAULT_RIVE_URL = BOY_RIVE_URL
 
@@ -55,8 +57,8 @@ export const DEFAULT_SPEECH_TEXT =
   "Hello, I am a talking animated character. Nice to meet you!"
 
 /** 首次体验预置：静态音频 + Rhubarb 嘴型 JSON（无需启动时 TTS） */
-export const PRESET_SPEECH_URL = "/preset/speech.mp3"
-export const PRESET_MOUTH_URL = "/preset/mouth.json"
+export const PRESET_SPEECH_URL = appUrl("preset/speech.mp3")
+export const PRESET_MOUTH_URL = appUrl("preset/mouth.json")
 
 /** 默认音色：中英，男童 */
 export const DEFAULT_VOICE = "zh-CN-YunxiaNeural"
@@ -78,55 +80,55 @@ export const MOUTH_GUIDE_ROWS = [
     value: 0,
     shape: "X",
     desc: "静息 / 闭嘴（静音）",
-    image: "/mouth/0.png",
+    image: appUrl("mouth/0.png"),
   },
   {
     value: 1,
     shape: "A",
     desc: "双唇闭合（b / m / p等）如 back",
-    image: "/mouth/1.png",
+    image: appUrl("mouth/1.png"),
   },
   {
     value: 2,
     shape: "B",
     desc: "微张、露齿感（多数辅音 / ee）如 bee",
-    image: "/mouth/2.png",
+    image: appUrl("mouth/2.png"),
   },
   {
     value: 3,
     shape: "C",
     desc: "自然张开（eh 等）如 bat",
-    image: "/mouth/3.png",
+    image: appUrl("mouth/3.png"),
   },
   {
     value: 4,
     shape: "D",
     desc: "大张（ah 等）如 high",
-    image: "/mouth/4.png",
+    image: appUrl("mouth/4.png"),
   },
   {
     value: 5,
     shape: "E",
     desc: "略圆（er / aw 等）如 hot",
-    image: "/mouth/5.png",
+    image: appUrl("mouth/5.png"),
   },
   {
     value: 6,
     shape: "F",
     desc: "撮口（oo / w 等）如 wow",
-    image: "/mouth/6.png",
+    image: appUrl("mouth/6.png"),
   },
   {
     value: 7,
     shape: "G",
     desc: "上牙咬下唇（f / v）如 fun",
-    image: "/mouth/7.png",
+    image: appUrl("mouth/7.png"),
   },
   {
     value: 8,
     shape: "H",
     desc: "舌尖顶上（L）如 let",
-    image: "/mouth/8.png",
+    image: appUrl("mouth/8.png"),
   },
 ] as const
 

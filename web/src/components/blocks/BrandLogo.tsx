@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 
 import { LOGO_RIVE_URL } from "@/lib/constants"
+import { appUrl } from "@/lib/app-url"
 import {
   getFit,
   loadRiveRuntime,
@@ -11,8 +12,8 @@ import type { Theme } from "@/lib/theme/theme-context"
 const LOGO_SRC = LOGO_RIVE_URL
 /** 用户提供的矢量 SVG 占位（非 PNG），避免位图放大发糊 */
 const LOGO_CACHE_BUST = "v=20260721t2350"
-const LOGO_LIGHT_SVG = `/brand/logo-light.svg?${LOGO_CACHE_BUST}`
-const LOGO_DARK_SVG = `/brand/logo-dark.svg?${LOGO_CACHE_BUST}`
+const LOGO_LIGHT_SVG = appUrl(`brand/logo-light.svg?${LOGO_CACHE_BUST}`)
+const LOGO_DARK_SVG = appUrl(`brand/logo-dark.svg?${LOGO_CACHE_BUST}`)
 /** 与原先 h-16（64px）一致；SVG 为矢量，Retina 仍清晰 */
 const LOGO_WIDTH_CSS = 160
 const LOGO_HEIGHT_CSS = 64
