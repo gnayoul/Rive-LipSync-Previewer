@@ -61,12 +61,21 @@ const server = http.createServer(async (req, res) => {
 
     const url = new URL(req.url, `http://${req.headers.host}`);
 
-    if (req.method === "GET" && url.pathname === "/api/health") {
-      sendJson(res, 200, {
-        ok: true,
-        ttsProxy: true,
-        port: PORT,
-      });
+    if (
+      (req.method === "GET" || req.method === "HEAD") &&
+      url.pathname === "/api/health"
+    ) {
+      sendJson(
+        res,
+        200,
+        {
+          ok: true,
+          ttsProxy: true,
+          port: PORT,
+        },
+        {},
+        req.method === "HEAD",
+      );
       return;
     }
 
@@ -411,14 +420,15 @@ async function readJson(req, maxBytes = TTS_BODY_MAX_BYTES) {
   }
 }
 
-function sendJson(res, status, payload, extraHeaders = {}) {
+function sendJson(res, status, payload, extraHeaders = {}, headOnly = false) {
   const body = JSON.stringify(payload);
   res.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
+    "Content-Length": Buffer.byteLength(body),
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+    "Access-Control-Allow-Methods": "GET,HEAD,POST,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
     ...extraHeaders,
   });
-  res.end(body);
+  res.end(headOnly ? undefined : body);
 }
