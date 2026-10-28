@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { patchEdgeTts } from "./patch-edge-tts.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const webRoot = path.join(repoRoot, "web");
@@ -14,6 +15,11 @@ const indexHtml = path.join(webRoot, "dist", "index.html");
 const invokedAsPostinstall = process.env.npm_lifecycle_event === "postinstall";
 const onRender = process.env.RENDER === "true";
 const forceBuild = process.env.FORCE_WEB_BUILD === "1";
+
+// Microsoft moved the Edge Read Aloud WebSocket endpoint in October 2026.
+// edge-tts-universal@1.4.0 still ships the retired endpoint and hangs when its
+// handshake is rejected, so patch the installed bundle on every deployment.
+patchEdgeTts();
 
 // Local `npm install` should stay fast; Render dashboard builds that only run
 // `npm install` still need this postinstall. Explicit `node scripts/build-web.mjs`

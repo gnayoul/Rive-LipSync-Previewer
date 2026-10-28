@@ -41,6 +41,17 @@ Rive Rhubarb Lip Sync Previewer
 - Node.js 18+（运行 start.bat / server.mjs）
 - 首次使用：在项目目录执行 npm install
 
+如果本机开启了网络代理，而生成时出现 TLS 连接中断：
+- 在项目根目录创建 tts.local.json，例如：
+  { "proxyUrl": "http://127.0.0.1:7892", "fallbackToDirect": true }
+- 端口必须与本机代理客户端的 HTTP / mixed 端口一致，然后重启服务。
+- 此文件已被 Git 忽略，不会把本机地址带到 Render。
+- 也可用环境变量 TTS_PROXY_URL 设置；空字符串表示直接连接。
+- fallbackToDirect 为 true 时，连接中断后交替使用代理和直连，最多尝试四次。
+  使用环境变量配置时，用 TTS_FALLBACK_TO_DIRECT=1 开启；默认不开启备用直连。
+- 服务启动时的 TTS transport 日志会显示 direct 或 configured HTTP proxy。
+- 可运行 node scripts/check-tts.mjs 检查两条路径，不会发送用户输入的内容。
+
 ----------------------------------------------------------------------
 公网部署
 ----------------------------------------------------------------------

@@ -12,6 +12,7 @@
     "dev": "node server.mjs",
     "dev:web": "npm --prefix web run dev",
     "dev:web:chrome": "npm --prefix web run dev:chrome",
+    "patch:edge-tts": "node scripts/patch-edge-tts.mjs",
     "build:web": "npm --prefix web run build",
     "build": "node scripts/build-web.mjs",
     "postinstall": "node scripts/build-web.mjs"

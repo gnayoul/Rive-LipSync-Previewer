@@ -4,6 +4,7 @@ __pycache__/
 *.pyc
 .DS_Store
 .env
+tts.local.json
 *.log
 CONTINUATION.txt
 CONTINUE.txt

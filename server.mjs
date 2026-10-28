@@ -2,12 +2,20 @@ import http from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { EdgeTTS } from "edge-tts-universal";
+import { Communicate } from "edge-tts-universal";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3921);
 /** Microsoft Edge TTS often stalls on slow/blocked networks; fail the HTTP request instead of hanging forever. */
 const TTS_TIMEOUT_MS = Number(process.env.TTS_TIMEOUT_MS || 55_000);
+const TTS_MAX_ATTEMPTS = Math.max(
+  1,
+  Math.min(4, Math.floor(Number(process.env.TTS_MAX_ATTEMPTS) || 4)),
+);
+// Local Windows network clients may route raw TLS differently from HTTP CONNECT.
+// Keep machine-specific proxy configuration out of the deployed repository.
+const TTS_CONNECTION = await readTtsConnection();
+const TTS_PROXY_URL = TTS_CONNECTION.proxyUrl;
 
 /** Anti-abuse MVP for Edge TTS proxy. */
 const TTS_BODY_MAX_BYTES = Number(process.env.TTS_BODY_MAX_BYTES || 8 * 1024);
@@ -74,6 +82,7 @@ const server = http.createServer(async (req, res) => {
           ok: true,
           ttsProxy: true,
           port: PORT,
+          revision: process.env.RENDER_GIT_COMMIT || null,
         },
         {},
         req.method === "HEAD",
@@ -86,8 +95,8 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (req.method === "GET") {
-      await serveStatic(req, res, pathname);
+    if (req.method === "GET" || req.method === "HEAD") {
+      await serveStatic(req, res, pathname, req.method === "HEAD");
       return;
     }
 
@@ -110,9 +119,10 @@ const server = http.createServer(async (req, res) => {
 await assertDistReady();
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`Rive LipSync Previewer running at http://0.0.0.0:${PORT}`);
+  console.log(`Rive LipSync Previewer running at http://0.0.0.0:${server.address().port}`);
   console.log(`Static root: ${DIST_ROOT}`);
   console.log(`Serving SPA index: ${DIST_INDEX}`);
+  console.log(`TTS transport: ${TTS_PROXY_URL ? "configured HTTP proxy" : "direct"}`);
 });
 
 async function handleEdgeTTS(req, res) {
@@ -285,24 +295,101 @@ function withTimeout(promise, ms, message) {
 }
 
 async function synthesizeEdgeSpeech(text, voice, rate = 1) {
+  const started = Date.now();
   const ratePercent = Math.round(rate * 100 - 100);
   const rateOption = `${ratePercent >= 0 ? "+" : ""}${ratePercent}%`;
 
-  try {
-    const tts = new EdgeTTS(text, voice, {
-      rate: rateOption,
-      volume: "+0%",
-      pitch: "+0Hz",
-    });
-    const result = await tts.synthesize();
-    const audio = result?.audio;
-    if (!audio) throw new Error("语音合成没有返回音频数据。");
-    return Buffer.from(await audio.arrayBuffer());
-  } catch (error) {
-    const message = error?.message || String(error);
-    if (/超时|timeout/i.test(message)) throw error;
-    throw new Error(`语音合成失败：${message}`);
+  let lastError;
+  for (let attempt = 1; attempt <= TTS_MAX_ATTEMPTS; attempt += 1) {
+    // A broken local tunnel must not consume every retry on the same route.
+    // Direct fallback is opt-in so deployments with a mandatory proxy keep it.
+    const proxy = TTS_PROXY_URL &&
+      !(TTS_CONNECTION.fallbackToDirect && attempt % 2 === 0)
+      ? TTS_PROXY_URL
+      : undefined;
+    const route = proxy ? "proxy" : "direct";
+    try {
+      // EdgeTTS's convenience API drops proxy/connectionTimeout options.
+      // Use its underlying streaming client so those options actually reach ws.
+      const tts = new Communicate(text, {
+        voice,
+        rate: rateOption,
+        volume: "+0%",
+        pitch: "+0Hz",
+        proxy,
+        connectionTimeout: 10_000,
+      });
+      const chunks = [];
+      for await (const chunk of tts.stream()) {
+        if (chunk.type === "audio" && chunk.data?.length) {
+          chunks.push(Buffer.from(chunk.data));
+        }
+      }
+      const audio = Buffer.concat(chunks);
+      if (!audio.length) throw new Error("语音合成没有返回音频数据。");
+      console.log(
+        `[tts] success route=${route} attempt=${attempt} bytes=${audio.length} elapsed=${Date.now() - started}ms`,
+      );
+      return audio;
+    } catch (error) {
+      lastError = error;
+      const message = error?.message || String(error);
+      const retryable = isTransientTtsError(message);
+      if (!retryable || attempt >= TTS_MAX_ATTEMPTS) {
+        console.error(`[tts] failed route=${route} attempt=${attempt}: ${message}`);
+        break;
+      }
+
+      const delayMs = attempt === 1 ? 750 : 2_000;
+      console.warn(
+        `[tts] transient failure route=${route} attempt=${attempt}/${TTS_MAX_ATTEMPTS}: ${message}; retrying in ${delayMs}ms`,
+      );
+      await delay(delayMs);
+    }
   }
+
+  const message = lastError?.message || String(lastError || "unknown error");
+  if (/超时|timeout/i.test(message)) throw lastError;
+  throw new Error(`语音合成失败：${message}`);
+}
+
+function isTransientTtsError(message) {
+  return /(?:ECONNRESET|ECONNREFUSED|ENETUNREACH|EHOSTUNREACH|ETIMEDOUT|EAI_AGAIN|socket hang up|TLS connection|WebSocket handshake timed out|Handshake rejected: HTTP (?:429|50[234])|closed before open)/i.test(
+    message,
+  );
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function readTtsConnection() {
+  let proxyUrl = process.env.TTS_PROXY_URL;
+  let fallbackToDirect = process.env.TTS_FALLBACK_TO_DIRECT === "1";
+  if (proxyUrl === undefined) {
+    try {
+      const localConfig = JSON.parse(
+        await fs.readFile(path.join(__dirname, "tts.local.json"), "utf8"),
+      );
+      proxyUrl = localConfig.proxyUrl;
+      fallbackToDirect = localConfig.fallbackToDirect === true;
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        throw new Error("Cannot read tts.local.json; check its JSON format.");
+      }
+    }
+  }
+  if (!proxyUrl) return { proxyUrl: undefined, fallbackToDirect: false };
+  let parsed;
+  try {
+    parsed = new URL(proxyUrl);
+  } catch {
+    throw new Error("TTS proxy must be an http:// or https:// URL.");
+  }
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error("TTS proxy must be an http:// or https:// URL.");
+  }
+  return { proxyUrl: parsed.href, fallbackToDirect };
 }
 
 function isPathInsideRoot(root, resolved) {
@@ -313,14 +400,14 @@ function isPathInsideRoot(root, resolved) {
   );
 }
 
-async function sendFile(res, resolved) {
+async function sendFile(res, resolved, headOnly = false) {
   const content = await fs.readFile(resolved);
   const ext = path.extname(resolved).toLowerCase();
   res.writeHead(200, {
     "Content-Type": MIME_TYPES[ext] || "application/octet-stream",
     "Access-Control-Allow-Origin": "*",
   });
-  res.end(content);
+  res.end(headOnly ? undefined : content);
 }
 
 async function assertDistReady() {
@@ -346,7 +433,7 @@ function stripAppBasePath(pathname) {
   return pathname;
 }
 
-async function serveStatic(req, res, pathname) {
+async function serveStatic(req, res, pathname, headOnly = false) {
   const decoded = decodeURIComponent(pathname);
   const isVendor = decoded === "/vendor" || decoded.startsWith("/vendor/");
   const root = isVendor ? VENDOR_ROOT : DIST_ROOT;
@@ -375,13 +462,13 @@ async function serveStatic(req, res, pathname) {
   }
 
   try {
-    await sendFile(res, resolved);
+    await sendFile(res, resolved, headOnly);
   } catch (error) {
     // SPA fallback for client routes (not /api or /vendor).
     if (!isVendor && !decoded.startsWith("/api")) {
       try {
         if (isPathInsideRoot(DIST_ROOT, DIST_INDEX)) {
-          await sendFile(res, DIST_INDEX);
+          await sendFile(res, DIST_INDEX, headOnly);
           return;
         }
       } catch (fallbackError) {
