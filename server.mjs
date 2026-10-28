@@ -2,7 +2,7 @@ import http from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Communicate } from "edge-tts-universal";
+import { EdgeTTS } from "node-edge-tts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3921);
@@ -309,20 +309,24 @@ async function synthesizeEdgeSpeech(text, voice, rate = 1) {
       : undefined;
     const route = proxy ? "proxy" : "direct";
     try {
-      // EdgeTTS's convenience API drops proxy/connectionTimeout options.
-      // Use its underlying streaming client so those options actually reach ws.
-      const tts = new Communicate(text, {
+      // The v2 client owns its socket timeout and closes on incomplete streams.
+      // Keep every attempt within the HTTP request's overall time budget.
+      const remainingMs = TTS_TIMEOUT_MS - (Date.now() - started) - 250;
+      if (remainingMs <= 0) throw new Error("语音合成超时，请稍后重试。");
+      const tts = new EdgeTTS({
         voice,
+        lang: voice.split("-").slice(0, 2).join("-"),
         rate: rateOption,
         volume: "+0%",
         pitch: "+0Hz",
         proxy,
-        connectionTimeout: 10_000,
+        outputFormat: "audio-24khz-48kbitrate-mono-mp3",
+        timeout: remainingMs,
       });
       const chunks = [];
-      for await (const chunk of tts.stream()) {
-        if (chunk.type === "audio" && chunk.data?.length) {
-          chunks.push(Buffer.from(chunk.data));
+      for await (const chunk of tts.streamAudio(text)) {
+        if (Buffer.isBuffer(chunk) && chunk.length) {
+          chunks.push(chunk);
         }
       }
       const audio = Buffer.concat(chunks);
@@ -341,6 +345,7 @@ async function synthesizeEdgeSpeech(text, voice, rate = 1) {
       }
 
       const delayMs = attempt === 1 ? 750 : 2_000;
+      if (Date.now() - started + delayMs >= TTS_TIMEOUT_MS - 250) break;
       console.warn(
         `[tts] transient failure route=${route} attempt=${attempt}/${TTS_MAX_ATTEMPTS}: ${message}; retrying in ${delayMs}ms`,
       );
@@ -354,7 +359,7 @@ async function synthesizeEdgeSpeech(text, voice, rate = 1) {
 }
 
 function isTransientTtsError(message) {
-  return /(?:ECONNRESET|ECONNREFUSED|ENETUNREACH|EHOSTUNREACH|ETIMEDOUT|EAI_AGAIN|socket hang up|TLS connection|WebSocket handshake timed out|Handshake rejected: HTTP (?:429|50[234])|closed before open)/i.test(
+  return /(?:ECONNRESET|ECONNREFUSED|ENETUNREACH|EHOSTUNREACH|ETIMEDOUT|EAI_AGAIN|socket hang up|TLS connection|timed out|Unexpected server response: (?:429|50[234])|closed before)/i.test(
     message,
   );
 }

@@ -3,92 +3,40 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const distRoot = path.join(repoRoot, "node_modules", "edge-tts-universal", "dist");
-
-const OLD_ENDPOINT =
-  "var WSS_URL = `wss://${BASE_URL}/edge/v1?TrustedClientToken=${TRUSTED_CLIENT_TOKEN}`;";
-const NEW_ENDPOINT =
-  'var WSS_URL = "wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1?Ocp-Apim-Subscription-Key=" + TRUSTED_CLIENT_TOKEN;';
-
-const OLD_OPEN_WAIT =
-  'await new Promise((resolve) => websocket.on("open", resolve));';
-const NEW_OPEN_WAIT = `await new Promise((resolve, reject) => {
-      let timer;
-      let settled = false;
-      const cleanup = () => {
-        if (timer) clearTimeout(timer);
-        websocket.off("open", onOpen);
-        websocket.off("unexpected-response", onUnexpectedResponse);
-        websocket.off("error", onError);
-        websocket.off("close", onClose);
-      };
-      const finish = (error) => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        if (error) reject(error);
-        else resolve();
-      };
-      const onOpen = () => finish();
-      const onUnexpectedResponse = (request, response) => {
-        const status = response?.statusCode || "unknown";
-        try { response?.resume?.(); } catch {}
-        try { request?.destroy?.(); } catch {}
-        finish(new WebSocketError(\`Handshake rejected: HTTP \${status}\`));
-      };
-      const onError = (error) =>
-        finish(new WebSocketError(error?.message || "WebSocket handshake failed"));
-      const onClose = (code) =>
-        finish(new WebSocketError(\`Closed before open (code \${code})\`));
-
-      websocket.once("open", onOpen);
-      websocket.once("unexpected-response", onUnexpectedResponse);
-      websocket.once("error", onError);
-      websocket.once("close", onClose);
-      timer = setTimeout(() => {
-        try { websocket.terminate(); } catch {}
-        finish(new WebSocketError("WebSocket handshake timed out"));
-      }, 10000);
-    });`;
+const packageRoot = path.join(repoRoot, "node_modules", "node-edge-tts");
+const obsoleteEndpoint =
+  "wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1?Ocp-Apim-Subscription-Key=";
+const readAloudEndpoint =
+  "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=";
+const cookieHeader =
+  "                'Cookie': `muid=${(0, node_crypto_1.randomBytes)(16).toString('hex').toUpperCase()};`,";
 
 export function patchEdgeTts() {
-  if (!fs.existsSync(distRoot)) {
-    throw new Error(
-      `[patch-edge-tts] missing dependency at ${distRoot}; run npm install first`,
-    );
+  const manifest = JSON.parse(fs.readFileSync(path.join(packageRoot, "package.json"), "utf8"));
+  if (manifest.version !== "1.2.12") {
+    throw new Error("[patch-edge-tts] review the endpoint patch before changing node-edge-tts@1.2.12");
   }
-
-  const targets = ["index.js", "index.cjs"];
-  for (const filename of targets) {
-    const target = path.join(distRoot, filename);
-    let source = fs.readFileSync(target, "utf8");
-    let changed = false;
-
-    if (source.includes(OLD_ENDPOINT)) {
-      source = source.replace(OLD_ENDPOINT, NEW_ENDPOINT);
-      changed = true;
-    } else if (!source.includes(NEW_ENDPOINT)) {
-      throw new Error(
-        `[patch-edge-tts] ${filename} has an unknown endpoint layout; review the upstream package before deploying`,
-      );
-    }
-
-    if (source.includes(OLD_OPEN_WAIT)) {
-      source = source.replace(OLD_OPEN_WAIT, NEW_OPEN_WAIT);
-      changed = true;
-    } else if (!source.includes("WebSocket handshake timed out")) {
-      throw new Error(
-        `[patch-edge-tts] ${filename} has an unknown handshake layout; review the upstream package before deploying`,
-      );
-    }
-
-    if (changed) {
-      fs.writeFileSync(target, source);
-      console.log(`[patch-edge-tts] patched ${filename}`);
-    } else {
-      console.log(`[patch-edge-tts] already patched ${filename}`);
-    }
+  const target = path.join(packageRoot, "dist", "edge-tts.js");
+  let source = fs.readFileSync(target, "utf8");
+  const original = source;
+  if (!source.includes("generateSecMsGecToken_V2") || !source.includes("SEC_MS_GEC_VERSION_V2")) {
+    throw new Error("[patch-edge-tts] v2 authentication is required");
   }
+  // The v2 release still points at the endpoint that now answers HTTP 200.
+  // Use Bing Read Aloud with v2 signing, as in upstream edge-tts >=7.3.0.
+  // https://github.com/Migushthe2nd/MsEdgeTTS/pull/43
+  if (source.includes(obsoleteEndpoint)) {
+    source = source.replace(obsoleteEndpoint, readAloudEndpoint);
+  } else if (!source.includes(readAloudEndpoint)) {
+    throw new Error("[patch-edge-tts] unknown WebSocket endpoint layout");
+  }
+  if (!source.includes(cookieHeader)) {
+    const headers = "            headers: {";
+    if (!source.includes(headers)) throw new Error("[patch-edge-tts] unknown header layout");
+    source = source.replace(headers, `${headers}\n${cookieHeader}`);
+  }
+  if (source !== original) fs.writeFileSync(target, source);
+  console.log("[patch-edge-tts] Bing endpoint + v2 signing + MUID ready");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

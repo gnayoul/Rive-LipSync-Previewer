@@ -16,9 +16,8 @@ const invokedAsPostinstall = process.env.npm_lifecycle_event === "postinstall";
 const onRender = process.env.RENDER === "true";
 const forceBuild = process.env.FORCE_WEB_BUILD === "1";
 
-// Microsoft moved the Edge Read Aloud WebSocket endpoint in October 2026.
-// edge-tts-universal@1.4.0 still ships the retired endpoint and hangs when its
-// handshake is rejected, so patch the installed bundle on every deployment.
+// The alternate host now returns HTTP 200 instead of upgrading the socket.
+// Keep the published v2 client on Bing Read Aloud on every deployment.
 patchEdgeTts();
 
 // Local `npm install` should stay fast; Render dashboard builds that only run

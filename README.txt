@@ -40,6 +40,9 @@ Rive Rhubarb Lip Sync Previewer
 
 - Node.js 18+（运行 start.bat / server.mjs）
 - 首次使用：在项目目录执行 npm install
+- 语音客户端使用 Sec-MS-GEC v2 鉴权；安装和生产构建会自动配置兼容的服务地址。
+- 更新代码后执行 npm install，再重启服务。不要沿用旧版 node_modules。
+- npm run test:tts 可离线检查鉴权向量、握手、音频帧和超时处理。
 
 如果本机开启了网络代理，而生成时出现 TLS 连接中断：
 - 在项目根目录创建 tts.local.json，例如：
