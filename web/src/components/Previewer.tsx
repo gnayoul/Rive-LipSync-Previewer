@@ -19,7 +19,6 @@ import {
   type RhubarbJson,
   type VoiceGender,
 } from "@/lib/constants"
-import { isRestrictedPreviewBrowser } from "@/lib/asr/env"
 import {
   cancelAsr,
   transcribeAudioFile,
@@ -217,22 +216,8 @@ export function Previewer() {
   }, [stopTick])
 
   useEffect(() => {
-    // Cursor Simple Browser: defer WASM warm-up so first paint isn't starved.
-    const restricted = isRestrictedPreviewBrowser()
-    const warmRhubarb = () => {
-      ensureRhubarbEngine().catch((error: Error) => {
-        const next: TabStatus = {
-          messageKey: "status.rhubarbLoadFail",
-          params: { error: error.message || "unknown" },
-          tone: "error",
-        }
-        setTextStatus(next)
-        setVoiceStatus(next)
-      })
-    }
-    const warmTimer = restricted
-      ? window.setTimeout(warmRhubarb, 800)
-      : (warmRhubarb(), undefined)
+    // Rhubarb downloads ~38 MB of analysis data. Initialize it on Generate /
+    // Analyze instead, so it cannot compete with the initial Rive render.
 
     const onFocus = () => {
       void refreshServerHealth().then((health) => {
@@ -244,7 +229,6 @@ export function Previewer() {
     })
     window.addEventListener("focus", onFocus)
     return () => {
-      if (warmTimer !== undefined) window.clearTimeout(warmTimer)
       window.removeEventListener("focus", onFocus)
       destroyRive()
       asrAbortRef.current?.abort()

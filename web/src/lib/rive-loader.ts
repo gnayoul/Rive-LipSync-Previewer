@@ -1,7 +1,9 @@
 import { appUrl } from "@/lib/app-url"
 
-const RIVE_JS_URL = appUrl("vendor/rive/rive.js")
-const RIVE_WASM_URL = appUrl("vendor/rive/rive.wasm")
+// Keep this version aligned with the vendored JS, both WASM builds and index.html.
+const RIVE_JS_URL = appUrl("vendor/rive/rive.js?v=2.38.5")
+const RIVE_WASM_URL = appUrl("vendor/rive/rive.wasm?v=2.38.5")
+const RIVE_FALLBACK_URL = appUrl("vendor/rive/rive_fallback.wasm?v=2.38.5")
 
 /** 遮罩揭开失败时的硬超时，避免 ready 永远 false */
 export const RIVE_REVEAL_TIMEOUT_MS = 2000
@@ -17,13 +19,9 @@ declare global {
 }
 
 export function loadRiveRuntime() {
-  if (window.rive) {
-    window.rive.RuntimeLoader?.setWasmUrl?.(RIVE_WASM_URL)
-    return Promise.resolve(window.rive)
-  }
-
   if (!riveRuntimePromise) {
-    riveRuntimePromise = new Promise((resolve, reject) => {
+    riveRuntimePromise = (async () => {
+      if (!window.rive) await new Promise<void>((resolve, reject) => {
       const script = document.createElement("script")
       script.src = RIVE_JS_URL
       script.async = true
@@ -33,12 +31,24 @@ export function loadRiveRuntime() {
           reject(new Error("Rive runtime 已载入，但 window.rive 不存在。"))
           return
         }
-        window.rive.RuntimeLoader?.setWasmUrl?.(RIVE_WASM_URL)
-        resolve(window.rive)
+        resolve()
       }
-      script.onerror = () =>
+      script.onerror = () => {
+        script.remove()
         reject(new Error("无法载入 Rive runtime。请确认已通过本站地址打开页面。"))
+      }
       document.head.appendChild(script)
+      })
+      const runtime = window.rive
+      runtime.RuntimeLoader.setWasmUrl(RIVE_WASM_URL)
+      runtime.RuntimeLoader.setWasmFallbackUrl(RIVE_FALLBACK_URL)
+      // Logo and character share one initialization. Do not reset wasmURL to
+      // the primary URL while a compatibility fallback is already loading.
+      await runtime.RuntimeLoader.awaitInstance()
+      return runtime
+    })().catch((error) => {
+      riveRuntimePromise = null
+      throw error
     })
   }
 

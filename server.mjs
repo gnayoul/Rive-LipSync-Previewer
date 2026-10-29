@@ -2,6 +2,8 @@ import http from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { gzip } from "node:zlib";
+import { promisify } from "node:util";
 import { EdgeTTS } from "node-edge-tts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -405,13 +407,45 @@ function isPathInsideRoot(root, resolved) {
   );
 }
 
-async function sendFile(res, resolved, headOnly = false) {
-  const content = await fs.readFile(resolved);
+const gzipAsync = promisify(gzip);
+const riveGzipCache = new Map();
+
+async function sendFile(req, res, resolved, headOnly = false) {
+  const stat = await fs.stat(resolved);
+  if (!stat.isFile()) throw new Error("Not a file");
   const ext = path.extname(resolved).toLowerCase();
-  res.writeHead(200, {
+  const etag = `W/"${stat.size.toString(16)}-${Math.trunc(stat.mtimeMs).toString(16)}"`;
+  const isRiveRuntime = path.dirname(resolved) === path.join(VENDOR_ROOT, "rive") && [".js", ".wasm"].includes(ext);
+  const headers = {
     "Content-Type": MIME_TYPES[ext] || "application/octet-stream",
     "Access-Control-Allow-Origin": "*",
+    "Cache-Control": ext === ".html" ? "no-cache" : "public, max-age=86400",
+    ETag: etag,
+    ...(isRiveRuntime ? { Vary: "Accept-Encoding" } : {}),
+  };
+  if (req.headers["if-none-match"]?.split(/\s*,\s*/).some((tag) => tag === etag || tag === "*")) {
+    res.writeHead(304, headers);
+    res.end();
+    return;
+  }
+  let content;
+  const acceptsGzip = String(req.headers["accept-encoding"] || "").split(",").some((entry) => {
+    const [name, ...params] = entry.trim().split(";");
+    return name === "gzip" && !params.some((param) => /^\s*q\s*=\s*0(?:\.0*)?\s*$/.test(param));
   });
+  if (isRiveRuntime && acceptsGzip) {
+    const cached = riveGzipCache.get(resolved);
+    if (cached?.etag === etag) content = await cached.body;
+    else {
+      const body = fs.readFile(resolved).then((bytes) => gzipAsync(bytes));
+      riveGzipCache.set(resolved, { etag, body });
+      try { content = await body; }
+      catch (error) { riveGzipCache.delete(resolved); throw error; }
+    }
+    headers["Content-Encoding"] = "gzip";
+  } else content = await fs.readFile(resolved);
+  headers["Content-Length"] = content.length;
+  res.writeHead(200, headers);
   res.end(headOnly ? undefined : content);
 }
 
@@ -467,13 +501,13 @@ async function serveStatic(req, res, pathname, headOnly = false) {
   }
 
   try {
-    await sendFile(res, resolved, headOnly);
+    await sendFile(req, res, resolved, headOnly);
   } catch (error) {
     // SPA fallback for client routes (not /api or /vendor).
     if (!isVendor && !decoded.startsWith("/api")) {
       try {
         if (isPathInsideRoot(DIST_ROOT, DIST_INDEX)) {
-          await sendFile(res, DIST_INDEX, headOnly);
+          await sendFile(req, res, DIST_INDEX, headOnly);
           return;
         }
       } catch (fallbackError) {
