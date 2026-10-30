@@ -113,6 +113,21 @@ test("real HTTP server compresses and revalidates WASM while keeping HTML fresh"
     const html = await request(port, "/");
     assert.equal(html.headers["cache-control"], "no-cache");
     assert.match(html.body.toString(), /rive\.wasm\?v=2\.38\.5/);
+    // The acoustic/language package must survive HTTP compression byte-for-byte.
+    const dataPath = "/rive-lipsync/vendor/lip-sync-engine/wasm/lip-sync-engine.data";
+    const dataOriginal = fs.readFileSync(new URL("vendor/lip-sync-engine/wasm/lip-sync-engine.data", root));
+    const dataZipped = await request(port, dataPath, { "Accept-Encoding": "gzip" });
+    assert.equal(dataZipped.status, 200);
+    assert.equal(dataZipped.headers["content-encoding"], "gzip");
+    assert.equal(dataZipped.headers.vary, "Accept-Encoding");
+    assert.equal(Number(dataZipped.headers["content-length"]), dataZipped.body.length);
+    assert.ok(dataZipped.body.length < dataOriginal.length * 0.8);
+    assert.deepEqual(gunzipSync(dataZipped.body), dataOriginal);
+    const dataCached = await request(port, dataPath, { "If-None-Match": dataZipped.headers.etag });
+    assert.equal(dataCached.status, 304);
+    const dataPlain = await request(port, dataPath, { "Accept-Encoding": "gzip;q=0" });
+    assert.equal(dataPlain.headers["content-encoding"], undefined);
+    assert.deepEqual(dataPlain.body, dataOriginal);
     for (const filename of ["rive.wasm", "rive_fallback.wasm", "rive.js"]) {
       const path = `/rive-lipsync/vendor/rive/${filename}?v=2.38.5`;
       const original = fs.readFileSync(new URL(`vendor/rive/${filename}`, root));

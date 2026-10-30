@@ -93,6 +93,7 @@ const zh = {
   "status.rhubarbNoCues": "没有返回有效的嘴型数据。",
   "status.textTooLong":
     "文本过长，请控制在加权 {limit} 单位以内",
+  "status.loadingAnalysisTools": "首次生成需加载语言分析工具，进度{progress}%。",
   "status.generating": "正在生成语音与嘴型...",
   "status.ttsNoAudio": "语音合成失败，未获得音频数据。",
   "status.generateOk": "语音与嘴型数据已生成，请在左侧播放动画预览",
@@ -216,6 +217,7 @@ const en: Record<MessageKey, string> = {
   "status.rhubarbNoCues": "No valid mouth shape data returned.",
   "status.textTooLong":
     "Text too long — keep within {limit} weighted units",
+  "status.loadingAnalysisTools": "First generation requires language analysis tools. Downloading {progress}%.",
   "status.generating": "Generating speech and mouth data…",
   "status.ttsNoAudio": "Speech synthesis failed — no audio returned.",
   "status.generateOk":

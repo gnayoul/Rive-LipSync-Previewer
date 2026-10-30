@@ -5,12 +5,7 @@ import {
   isRestrictedPreviewBrowser,
 } from "@/lib/asr/env"
 
-// Purge stale model caches on page load when ASR_MODEL_REV changes (or ?asrCache=1).
-// Skip eager work in Cursor/Electron Simple Browser — keep first paint responsive.
-if (!isRestrictedPreviewBrowser()) {
-  void ensureAsrModelCache()
-}
-
+// Model cache maintenance runs only when transcription is requested.
 export type AsrStatus = "idle" | "loading" | "streaming" | "done" | "error"
 
 /** UI / worker language preference for Whisper ASR. */

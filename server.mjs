@@ -408,20 +408,20 @@ function isPathInsideRoot(root, resolved) {
 }
 
 const gzipAsync = promisify(gzip);
-const riveGzipCache = new Map();
+const staticGzipCache = new Map();
 
 async function sendFile(req, res, resolved, headOnly = false) {
   const stat = await fs.stat(resolved);
   if (!stat.isFile()) throw new Error("Not a file");
   const ext = path.extname(resolved).toLowerCase();
   const etag = `W/"${stat.size.toString(16)}-${Math.trunc(stat.mtimeMs).toString(16)}"`;
-  const isRiveRuntime = path.dirname(resolved) === path.join(VENDOR_ROOT, "rive") && [".js", ".wasm"].includes(ext);
+  const isCompressible = [".js", ".mjs", ".wasm", ".css", ".json", ".svg", ".data"].includes(ext);
   const headers = {
     "Content-Type": MIME_TYPES[ext] || "application/octet-stream",
     "Access-Control-Allow-Origin": "*",
     "Cache-Control": ext === ".html" ? "no-cache" : "public, max-age=86400",
     ETag: etag,
-    ...(isRiveRuntime ? { Vary: "Accept-Encoding" } : {}),
+    ...(isCompressible ? { Vary: "Accept-Encoding" } : {}),
   };
   if (req.headers["if-none-match"]?.split(/\s*,\s*/).some((tag) => tag === etag || tag === "*")) {
     res.writeHead(304, headers);
@@ -433,14 +433,14 @@ async function sendFile(req, res, resolved, headOnly = false) {
     const [name, ...params] = entry.trim().split(";");
     return name === "gzip" && !params.some((param) => /^\s*q\s*=\s*0(?:\.0*)?\s*$/.test(param));
   });
-  if (isRiveRuntime && acceptsGzip) {
-    const cached = riveGzipCache.get(resolved);
+  if (isCompressible && acceptsGzip) {
+    const cached = staticGzipCache.get(resolved);
     if (cached?.etag === etag) content = await cached.body;
     else {
       const body = fs.readFile(resolved).then((bytes) => gzipAsync(bytes));
-      riveGzipCache.set(resolved, { etag, body });
+      staticGzipCache.set(resolved, { etag, body });
       try { content = await body; }
-      catch (error) { riveGzipCache.delete(resolved); throw error; }
+      catch (error) { staticGzipCache.delete(resolved); throw error; }
     }
     headers["Content-Encoding"] = "gzip";
   } else content = await fs.readFile(resolved);

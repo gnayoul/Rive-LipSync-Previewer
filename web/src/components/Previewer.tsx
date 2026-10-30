@@ -651,8 +651,13 @@ export function Previewer() {
     setTextStatus({ messageKey: "status.generating", tone: "warn" })
 
     try {
-      await ensureRhubarbEngine()
+      await ensureRhubarbEngine((progress) => {
+        if (token === generateTokenRef.current) setTextStatus({
+          messageKey: "status.loadingAnalysisTools", params: { progress: progress.toFixed(1) }, tone: "warn",
+        })
+      })
       if (token !== generateTokenRef.current) return false
+      setTextStatus({ messageKey: "status.generating", tone: "warn" })
 
       const blob = await synthesizeEdgeTTS(
         text,
@@ -702,7 +707,7 @@ export function Previewer() {
 
   // 默认台词：加载预置音频 + 嘴型 JSON（无需启动时 TTS），与「已生成」状态一致
   useEffect(() => {
-    if (!riveFile) return
+    if (!riveFile || !controlsReady) return
 
     let cancelled = false
 
@@ -776,7 +781,7 @@ export function Previewer() {
     return () => {
       cancelled = true
     }
-  }, [riveFile])
+  }, [riveFile, controlsReady])
 
   useEffect(() => {
     const onResize = () => {
